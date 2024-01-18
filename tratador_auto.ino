@@ -35,16 +35,18 @@ typedef struct{
 
 //Variáveis de parâmetros
 unsigned int variaveisMenu_1[3]={0,0,0};//Puxar varíaveis da opção no menu e colocar numa array
+unsigned int variaveisMenu_2[3]={0,0,0};
 
+// Seria interesante incapsula essa variáveis em structs ou classes
 
-unsigned int *qtdaAnimais=&variaveisMenu_1[0];
+//Menu 1
+unsigned int *qtdaAnimais=&variaveisMenu_1[0],*pesoAnimal=&variaveisMenu_1[1];
+unsigned int *taxCrescimento=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por dia
 //String tipoAnimal;
 
-unsigned int *pesoAnimal=&variaveisMenu_1[1];
-unsigned int *taxCrescimento=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por dia
-
-unsigned int racaoDiaria,racaoPorRefeicao;
-unsigned int qtdaRacao;
+// Menu 2
+unsigned int *racaoDiaria=&variaveisMenu_2[0],*racaoPorRefeica=&variaveisMenu_2[1];
+unsigned int *qtdaRacao=&variaveisMenu_2[2];
 
 hora *horariosRefeicoes = NULL;
 
@@ -116,6 +118,7 @@ void setup() {
   CarregarMenuAtual=&CarregarMenu_1;
   AtualizarMenuAtual=&AtualizarMenu_1;
 
+  *qtdaAnimais=20;
   Serial.println(*qtdaAnimais);
 }
 
@@ -210,20 +213,45 @@ bool AtualizarMenu_1(){
 void CarregarMenu_2(){
   lcd_1.clear();
   lcd_1.setCursor(0, 0);
-  lcd_1.print("DATA LOTE:"+String(dataLote.dia)+"/"+String(dataLote.mes)+"/"+String(dataLote.ano));
+  lcd_1.print("DATA LOT:"+String(dataLote.dia)+"/"+String(dataLote.mes)+"/"+String(dataLote.ano));
   lcd_1.setCursor(0, 1);
-  lcd_1.print("QTDA REFEI:");
+  lcd_1.print("QTDA REF:");
+}
+
+bool pedir(const char* texto){
+  int opcao=0;
+  while(1){
+    lcd_1.setCursor(0, 3);
+    lcd_1.print(texto);
+
+    opcao+=((digitalRead(botaoDir)==LOW && opcao < 1)-(digitalRead(botaoEsq)==LOW && opcao > 0));
+
+    if(digitalRead(botaoEsq)==LOW)return true;
+    else if(digitalRead(botaoDir)==LOW)return false;
+  }
+  return false;
 }
 
 void EditarNovaDataLote(){
+  delay(500);
+
+  if(!pedir("Mudar texto?(Y/n)")){
+    lcd_1.setCursor(0, 3);
+    lcd_1.print("Data nao alterada");
+    return;
+  }
+
   uint8_t posCursos;
 
   DateTime data = rtc.now();
   unsigned int dados[]={data.day(),data.month(),data.year()};
 
   while(1){
-    lcd_1.setCursor(10, 0);
+    lcd_1.setCursor(18, 0);
+    lcd_1.print(" ");
+    lcd_1.setCursor(9, 0);
     lcd_1.print(String(dados[0])+"/"+dados[1]+"/"+dados[2]);
+    
 
     posCursos+=((digitalRead(botaoDir)==LOW && posCursos < 2)-(digitalRead(botaoEsq)==LOW && posCursos > 0));
 
@@ -234,18 +262,17 @@ void EditarNovaDataLote(){
     else if(posCursos==1)letra='M';
     else letra='A';
 
-
-    lcd_1.print(letra);
+    lcd_1.print(letra);//Escrever Caracter correpondente a opção selecionada DIA ou MÊS o ANO
 
     dados[posCursos]+=-(digitalRead(botaoBaixo)==LOW && dados[posCursos]-1 > 0)+(digitalRead(botaoCima)==LOW);
 
-    if(digitalRead(botao)==LOW && posCursos == 2){
+    if(digitalRead(botao)==LOW){
       dataLote.dia=dados[0];
       dataLote.mes=dados[1];
       dataLote.ano=dados[2];
-      
+
       lcd_1.setCursor(0, 3);
-      lcd_1.print("Data alterada com sucesso");
+      lcd_1.print("Data alterada    ");
       break;
     }
     delay(500);
@@ -281,6 +308,11 @@ bool AtualizarMenu_2(){
 void Menu(){
   CarregarMenuAtual();
 
+
+  //Atualizar pagina da tela
+  lcd_1.setCursor(0, 3);
+  lcd_1.print("P:"+String(pagAtual)+"/2");
+  
   //Loop do Menu Principal
   while(1){
     uint8_t antigaOpcaoSel = opcaoSelecionada;
@@ -301,9 +333,7 @@ void Menu(){
 
     if(AtualizarMenuAtual()==false)break;//Trocar de tela
 
-    //Atualizar pagina da tela
-    lcd_1.setCursor(15, 3);
-    lcd_1.print("P:"+String(pagAtual)+"/5");
+    
 
     delay(500);
   }

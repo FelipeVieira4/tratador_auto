@@ -24,7 +24,7 @@
 
 typedef struct{
   uint8_t hora;
-  uint8_t minuto;
+  int16_t minuto;
 }hora;
 
 typedef struct{
@@ -49,9 +49,10 @@ unsigned int *racaoDiaria=&variaveisMenu_2[0],*racaoPorRefeica=&variaveisMenu_2[
 unsigned int *qtdaRacao=&variaveisMenu_2[2];
 
 hora *horariosRefeicoes = NULL;
+hora horarioInicio2, horarioFinal2;
 
 data_Lote dataLote;
-uint8_t qtdaRefeicao;
+uint8_t qtdaRefeicao=3;
 
 int8_t opcaoSelecionada=0;
 bool suspenso = false;
@@ -64,7 +65,7 @@ uint8_t pagAtual=1;
 
 //Funções
 
-// Processos de Aplicação
+// Funções do menu
 void CarregarMenu_1(); // Desenhar textos base do menu
 bool AtualizarMenu_1(); // Atualizar e fazer parte lógica do menu
 
@@ -86,6 +87,9 @@ void Menu();
 
 void (*CarregarMenuAtual)(void);//Ponteiro para função do menu(lógica) que estiver rodando
 bool (*AtualizarMenuAtual)(void);//Ponteiro para função do menu(lógica) que estiver rodando
+
+// Funções
+void dividirHorario(hora horaInicial, hora horaFinal, uint8_t qtdaTratamento);
 
 void Suspenso();
 
@@ -122,8 +126,11 @@ void setup() {
   CarregarMenuAtual=&CarregarMenu_1;
   AtualizarMenuAtual=&AtualizarMenu_1;
 
-  *qtdaAnimais=20;
-  Serial.println(*qtdaAnimais);
+  //*qtdaAnimais=20;
+  //Serial.println(*qtdaAnimais);
+  horarioInicio2={5,30};
+  horarioFinal2={18,40};
+  dividirHorario(horarioInicio2,horarioFinal2,5);
 }
 
 
@@ -409,6 +416,32 @@ void Menu(){
 }
 
 //###################################################################################
-// Parte dos sensores
+// Parte da lógica
 //###################################################################################
 
+void dividirHorario(hora horaInicial, hora horaFinal, uint8_t qtdaTratamento) {
+  int tempoTotalMinutos = (horaFinal.hora - horaInicial.hora) * 60 + (horaFinal.minuto - horaInicial.minuto);
+  // Calcula a duração de cada tratamento em minutos
+  int duracaoTratamento = tempoTotalMinutos / qtdaTratamento;
+
+  Serial.println("Duração de cada tratamento: " + String(duracaoTratamento) + " minutos");
+
+  // Calcula e imprime os horários de cada tratamento
+  Serial.println("Horários dos tratamentos:");
+
+  hora horarioAtual = horaInicial;
+
+  for (int i = 0; i < qtdaTratamento+1; i++) {
+    Serial.println("Tratamento " + String(i + 1) + ": " + String(horarioAtual.hora) + ":" + String(horarioAtual.minuto));
+
+    // Avança para o próximo horário com base na duração do tratamento
+    horarioAtual.minuto += duracaoTratamento;
+
+    // Ajusta a hora e minuto
+    horarioAtual.hora += horarioAtual.minuto / 60;
+    horarioAtual.minuto %= 60;
+
+    // Ajusta a hora se ultrapassar meia-noite
+    horarioAtual.hora%=24;
+  }  
+}

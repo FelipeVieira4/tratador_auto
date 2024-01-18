@@ -116,12 +116,6 @@ void setup() {
   CarregarMenuAtual=&CarregarMenu_1;
   AtualizarMenuAtual=&AtualizarMenu_1;
 
-  /*
-  DateTime data = rtc.now();
-  dataLote.dia=data.day();
-  dataLote.mes=data.month();
-  dataLote.ano=data.year();
-  */
   Serial.println(*qtdaAnimais);
 }
 
@@ -167,10 +161,7 @@ void CarregarMenu_1(){
   lcd_1.print("PESO ANI(Kg):");
   lcd_1.setCursor(0, 2);
   lcd_1.print("TAX CRES(%):");
-  /*
-  lcd_1.setCursor(0, 3);
-  lcd_1.print("RACAO DI(g):");
-  */
+
   uint8_t resOpcao = opcaoSelecionada;
 
   for(uint8_t i = 0; i < 3; i++){
@@ -182,13 +173,6 @@ void CarregarMenu_1(){
   lcd_1.setCursor(19, opcaoSelecionada);
   lcd_1.print("*");
 
-
-  /*
-  //Carregar os valores para as variáveis do menu
-  variaveisMenu_1[0]=qtdaAnimais;
-  variaveisMenu_1[1]=pesoAnimal;
-  variaveisMenu_1[2]=taxCrescimento;
-  */
 }
 
 
@@ -231,6 +215,44 @@ void CarregarMenu_2(){
   lcd_1.print("QTDA REFEI:");
 }
 
+void EditarNovaDataLote(){
+  uint8_t posCursos;
+
+  DateTime data = rtc.now();
+  unsigned int dados[]={data.day(),data.month(),data.year()};
+
+  while(1){
+    lcd_1.setCursor(10, 0);
+    lcd_1.print(String(dados[0])+"/"+dados[1]+"/"+dados[2]);
+
+    posCursos+=((digitalRead(botaoDir)==LOW && posCursos < 2)-(digitalRead(botaoEsq)==LOW && posCursos > 0));
+
+    lcd_1.setCursor(19, 0);
+
+    char letra;
+    if(posCursos==0)letra='D';
+    else if(posCursos==1)letra='M';
+    else letra='A';
+
+
+    lcd_1.print(letra);
+
+    dados[posCursos]+=-(digitalRead(botaoBaixo)==LOW && dados[posCursos]-1 > 0)+(digitalRead(botaoCima)==LOW);
+
+    if(digitalRead(botao)==LOW && posCursos == 2){
+      dataLote.dia=dados[0];
+      dataLote.mes=dados[1];
+      dataLote.ano=dados[2];
+      
+      lcd_1.setCursor(0, 3);
+      lcd_1.print("Data alterada com sucesso");
+      break;
+    }
+    delay(500);
+  }
+}
+
+
 // Atualizar(lógica) do segundo menu
 bool AtualizarMenu_2(){
 
@@ -243,64 +265,18 @@ bool AtualizarMenu_2(){
     return false;
   }
 
-  /*
+  
   if(digitalRead(botao)==LOW){
     switch(verdadeiraPosicao){
       case 0:// Opcão DataLote
-        CarregarMenuAtual=&CarregarMenu_DataLote;
-        AtualizarMenuAtual=&AtualizarMenu_DataLote;
-        return false;
+        EditarNovaDataLote();
       break;
     }
   }
-  */
 
-  //Alterar os valores no programa
-  /*
-  qtdaAnimais=variaveisMenu_1[0];
-  pesoAnimal=variaveisMenu_1[1];
-  taxCrescimento=variaveisMenu_1[2];
-  */
   return true;
 }
 
-/*
-void EditarNovaDataLote(){
-  uint8_t posCursos;
-
-  DateTime data = rtc.now();
-  unsigned int dados[]={data.day(),data.month(),data.year()};
-
-  while(1){
-    lcd_1.setCursor(10, 1);
-    lcd_1.print(String(dados[0])+"/"+dados[1]+"/"+dados[2]);
-
-    uint8_t oldCursorPos = posCursos;
-
-    posCursos+=((digitalRead(botaoDir)==LOW && posCursos < 2)-(digitalRead(botaoEsq)==LOW && posCursos > 0));
-
-    if(posCursos!=oldCursorPos){
-      lcd_1.setCursor(9+(oldCursorPos*3), 2);
-      lcd_1.print(" ");
-
-      lcd_1.setCursor(9+(posCursos*3), 2);
-      lcd_1.print("#");
-    }
-
-    
-
-    dados[posCursos]+=-(digitalRead(botaoBaixo)==LOW && dados[posCursos]-1 > 0)+(digitalRead(botaoCima)==LOW);
-
-    if(digitalRead(botao)==LOW && posCursos == 2){
-      dataLote.dia=dados[0];
-      dataLote.mes=dados[1];
-      dataLote.ano=dados[2];
-      return;
-    }
-    delay(500);
-  }
-}
-*/
 
 void Menu(){
   CarregarMenuAtual();

@@ -53,7 +53,7 @@ hora *horariosRefeicoes = NULL;
 data_Lote dataLote;
 uint8_t qtdaRefeicao;
 
-uint8_t opcaoSelecionada=0;
+int8_t opcaoSelecionada=0;
 bool suspenso = false;
 
 //Bibliotecas externas
@@ -70,6 +70,10 @@ bool AtualizarMenu_1(); // Atualizar e fazer parte lógica do menu
 
 void CarregarMenu_2();
 bool AtualizarMenu_2();
+
+void CarregarMenu_3();
+bool AtualizarMenu_3();
+
 
 void CarregarMenu_DataLote();
 bool AtualizarMenu_DataLote();
@@ -151,9 +155,32 @@ void Suspenso(){
   */
 }
 
-// -------------
-// Primeiro Menu
-// -------------
+//###################################################################################
+// Parte dos menus
+//###################################################################################
+
+//Funções de chamada
+void irPag1(void){
+  CarregarMenuAtual=&CarregarMenu_1;
+  AtualizarMenuAtual=&AtualizarMenu_1;
+  pagAtual=1;
+}
+
+void irPag2(void){
+  CarregarMenuAtual=&CarregarMenu_2;
+  AtualizarMenuAtual=&AtualizarMenu_2;
+  pagAtual=2;
+}
+
+void irPag3(void){
+  CarregarMenuAtual=&CarregarMenu_3;
+  AtualizarMenuAtual=&AtualizarMenu_3;
+  pagAtual=3;
+}
+
+// --------------------
+//    Primeiro Menu
+// ----------------------
 
 // Desenhar textos bases no display
 void CarregarMenu_1(){
@@ -193,13 +220,14 @@ void AtualizarTelaMenu(int variavelSelecionada){
 bool AtualizarMenu_1(){
   variaveisMenu_1[opcaoSelecionada]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[opcaoSelecionada]-1 >= 0)) * 10;
 
-  // Alterar de tela
+  // Alterar para página 2
   if(opcaoSelecionada>2){
-    CarregarMenuAtual=&CarregarMenu_2;
-    AtualizarMenuAtual=&AtualizarMenu_2;
-    pagAtual=2;
+    irPag2();
+    opcaoSelecionada=0;
     return false;
   }
+
+  if(opcaoSelecionada<0)opcaoSelecionada=0;
 
   AtualizarTelaMenu(variaveisMenu_1[opcaoSelecionada]);//Rescrever o valor selecionado na tela
   return true;
@@ -209,8 +237,50 @@ bool AtualizarMenu_1(){
 // Segundo  Menu
 // -------------
 
-// Desenhar textos bases no display
 void CarregarMenu_2(){
+  lcd_1.clear();
+  lcd_1.setCursor(0, 0);
+  lcd_1.print("RACAO DI:");
+  lcd_1.setCursor(0, 1);
+  lcd_1.print("QTDA RAC:");
+  lcd_1.setCursor(0, 2);
+  lcd_1.print("RACAO RE:");
+
+  uint8_t resOpcao = opcaoSelecionada;
+
+  for(uint8_t i = 0; i < 3; i++){
+    opcaoSelecionada=i;
+    AtualizarTelaMenu(variaveisMenu_2[i]);
+  }
+
+  opcaoSelecionada=resOpcao;
+  lcd_1.setCursor(19, opcaoSelecionada);
+  lcd_1.print("*");
+}
+bool AtualizarMenu_2(){
+  variaveisMenu_2[opcaoSelecionada]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[opcaoSelecionada]-1 >= 0)) * 10;
+
+  // Alterar de tela
+  if(opcaoSelecionada>2){// Ir para tela 3
+    irPag3();
+    opcaoSelecionada=0;
+    return false;
+  }
+  else if(opcaoSelecionada<0){// Voltar para tela 1
+    irPag1();
+    opcaoSelecionada=3;
+    return false;
+  }
+  
+  return true;
+}
+
+// -------------
+// Terceiro  Menu
+// -------------
+
+// Desenhar textos bases no display
+void CarregarMenu_3(){
   lcd_1.clear();
   lcd_1.setCursor(0, 0);
   lcd_1.print("DATA LOT:"+String(dataLote.dia)+"/"+String(dataLote.mes)+"/"+String(dataLote.ano));
@@ -281,20 +351,17 @@ void EditarNovaDataLote(){
 
 
 // Atualizar(lógica) do segundo menu
-bool AtualizarMenu_2(){
+bool AtualizarMenu_3(){
 
-  uint8_t verdadeiraPosicao=opcaoSelecionada-4;
-
-  if(opcaoSelecionada<4){
-    CarregarMenuAtual=&CarregarMenu_1;
-    AtualizarMenuAtual=&AtualizarMenu_1;
-    pagAtual=1;
+  if(opcaoSelecionada<0){// Voltar para tela 2
+    irPag2();
+    opcaoSelecionada=3;
     return false;
   }
 
   
   if(digitalRead(botao)==LOW){
-    switch(verdadeiraPosicao){
+    switch(opcaoSelecionada){
       case 0:// Opcão DataLote
         EditarNovaDataLote();
       break;
@@ -311,13 +378,13 @@ void Menu(){
 
   //Atualizar pagina da tela
   lcd_1.setCursor(0, 3);
-  lcd_1.print("P:"+String(pagAtual)+"/2");
+  lcd_1.print("P:"+String(pagAtual)+"/3");
   
   //Loop do Menu Principal
   while(1){
     uint8_t antigaOpcaoSel = opcaoSelecionada;
 
-    opcaoSelecionada+=(digitalRead(botaoBaixo)==LOW)-(digitalRead(botaoCima)==LOW && opcaoSelecionada>0);
+    opcaoSelecionada+=(digitalRead(botaoBaixo)==LOW)-(digitalRead(botaoCima)==LOW && opcaoSelecionada>-1);
     //if(digitalRead(botaoBaixo)==LOW && opcaoSelecionada<3)opcaoSelecionada++;
     //else if(digitalRead(botaoCima)==LOW && opcaoSelecionada>0)opcaoSelecionada--;
 
@@ -340,3 +407,8 @@ void Menu(){
 
   return;
 }
+
+//###################################################################################
+// Parte dos sensores
+//###################################################################################
+

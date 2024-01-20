@@ -24,8 +24,8 @@
 
 typedef struct{
   uint8_t hora;
-  int16_t minuto;
-}Hora;
+  int16_t min;
+}Time;
 
 typedef struct{
   uint8_t dia;
@@ -48,25 +48,26 @@ unsigned int *taxCres=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por d
 unsigned int *racaoDiaria=&variaveisMenu_2[1],*racaoTratar=&variaveisMenu_2[2];
 unsigned int *qtdaRacao=&variaveisMenu_2[0];
 
-Hora horariosRefeicoes[qtdaMaxTratamento];
-Hora horaInicialT, horaFinalT;
+Time horariosRefeicoes[qtdaMaxTratamento];
+Time horaInicialT, horaFinalT;
 
 Data_Lote dataLote;
 uint8_t qtdaTratar=7;
 uint8_t horaTratar = 0;//index do horário para tratar o peixe
 
+
 int8_t cursor=0;
+uint8_t pagAtual=1;
 bool modoSuspenso = false;
 
 //Bibliotecas externas
 RTC_DS3231 rtc; //Acessar módulo de RTC(acessar data e hora)
 LiquidCrystal_I2C lcd(ende,Display_col,Display_lin); //Acessar o módulo LiquidCrystal(Display) atráves do I2C
 
-uint8_t pagAtual=1;
 
 //Funções
 
-// Funções do menu
+//  menu
 void CarregarMenu_1(); // Desenhar textos base do menu
 bool AtualizarMenu_1(); // Atualizar e fazer parte lógica do menu
 
@@ -86,11 +87,13 @@ bool AtualizarMenu_QTDARefeicao();
 void AtualizarMenu();
 void Menu();
 
-void (*CarregarMenuAtual)(void);//Ponteiro para função do menu(lógica) que estiver rodando
-bool (*AtualizarMenuAtual)(void);//Ponteiro para função do menu(lógica) que estiver rodando
+void (*CarregarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
+bool (*AtualizarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
 
 // Funções
-void ManejarHorarioTratamento();
+bool CheckTratar();
+int PerdeuTratar(); // Se passou o horário e não tratou
+void ManejarHorarioTratamento(); // Orgainzar/Reoganizar os horários do tratamento
 
 void Suspenso();
 
@@ -124,11 +127,24 @@ void setup() {
   CarregarMenuAtual=&CarregarMenu_1;
   AtualizarMenuAtual=&AtualizarMenu_1;
 
+
+  //Códigos para testes
+
   //*qtdaAnimais=20;
   //Serial.println(*qtdaAnimais);
+
+  /*
   horaInicialT={5,30};
   horaFinalT={18,45};
   ManejarHorarioTratamento();
+  */
+
+  /*
+  horariosRefeicoes[horaTratar].hora=23;
+  horariosRefeicoes[horaTratar].min=17;
+
+  Serial.println(checkTratar());
+  */
 }
 
 
@@ -145,19 +161,14 @@ void loop() {
 }
 
 void Suspenso(){
-  /*
-  DateTime agora = rtc.now(); // Faz a leitura de dados de data e hora
-  lcd_1.clear();
-  lcd_1.setCursor(0, 0);
-  lcd_1.print("DIA:"+String(agora.day(), DEC));
-  lcd_1.setCursor(0, 1);
-  lcd_1.print("MES:"+String(agora.month(), DEC));
-  lcd_1.setCursor(0, 2);
-  lcd_1.print("ANO:"+String(agora.year(), DEC));
-  lcd_1.setCursor(0, 3);
-  lcd_1.print("HORA:"+String(agora.hour(), DEC)+":"+String(agora.minute(), DEC)+":"+String(agora.second(), DEC));
-  delay(1000);
-  */
+  while(1){
+
+    if(checkTratar()){
+      //Tratar
+      if(horaTratar == qtdaTratar)horaTratar=0;
+      else horaTratar++;
+    }
+  }
 }
 
 //###################################################################################
@@ -422,15 +433,42 @@ void Menu(){
 // Parte da lógica
 //###################################################################################
 
+bool checkTratar(){
+  Time tratarHora = horariosRefeicoes[horaTratar];
+  DateTime time = rtc.now();
+
+  if(tratarHora.hora == time.hour() && tratarHora.min == time.minute())return true;
+  return false;
+}
+
+int PerdeuTratar(){
+  Time tratarHora = horariosRefeicoes[horaTratar];
+  DateTime time = rtc.now();
+
+  //Perdeu alguns minutos mas continua na mesma hora pode ser ainda tratado
+  if(tratarHora.hora == time.hour() && tratarHora.min > time.minute())return 3;//Código para tratar agora
+
+  if(tratarHora.hora > time.hour){
+    uint8_t nextHora= horaTratar;
+
+    //Continuar planejando essa lógica
+    while(1){
+      nextHora++;
+
+      //if(nextHora.hora < time.hour() || )
+    }
+  }
+}
+
 void ManejarHorarioTratamento(){
 
-  int tempoTotalMinutos = (horaFinalT.hora - horaInicialT.hora) * 60 + (horaFinalT.minuto - horaInicialT.minuto);
+  int tempoTotalMinutos = (horaFinalT.hora - horaInicialT.hora) * 60 + (horaFinalT.min - horaInicialT.min);
   // Calcula a duração de cada tratamento em minutos
   int duracaoTratamento = tempoTotalMinutos / qtdaTratar;
 
   Serial.println("Duração de cada tratamento: " + String(duracaoTratamento) + " minutos");
 
-  Hora horarioAtual = horaInicialT;
+  Time horarioAtual = horaInicialT;
 
   horariosRefeicoes[0]=horaInicialT;//Primeiro tratamento é na hora inicial
 
@@ -438,11 +476,11 @@ void ManejarHorarioTratamento(){
   for (int i = 1; i <= qtdaTratar-1; i++) {//qtdaTratar-1; pular último valor por que esse nós ja sabemos
 
     // Avança para o próximo horário com base na duração do tratamento
-    horarioAtual.minuto += duracaoTratamento;
+    horarioAtual.min += duracaoTratamento;
 
     // Ajusta a hora e minuto
-    horarioAtual.hora += horarioAtual.minuto / 60;
-    horarioAtual.minuto %= 60;
+    horarioAtual.hora += horarioAtual.min / 60;
+    horarioAtual.min %= 60;
 
     // Ajusta a hora se ultrapassar meia-noite
     horarioAtual.hora%=24;
@@ -451,7 +489,7 @@ void ManejarHorarioTratamento(){
   }
   horariosRefeicoes[qtdaTratar]=horaFinalT;// setar o último vamos
 
-  //Loop para printar no Serial
+  //Loop para printar no Serial os horários de tratamento
   /*
   for (int i = 0; i <= qtdaTratar; i++) {
     Serial.println("Tratamento " + String(i) + ": " + String( horariosRefeicoes[i].hora) + ":" + String( horariosRefeicoes[i].minuto));

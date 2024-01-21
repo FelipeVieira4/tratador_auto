@@ -37,24 +37,25 @@ typedef struct{
   unsigned int *qtda; //Quantidade
   unsigned int *peso; //Média do peso
   unsigned int *texCres;  //Taxa de crescimento
+  char tipo[8];
 }Animais_s;
+
+typedef struct{
+  unsigned int *porTrata; //Quantidade de ração por tratamento
+  unsigned int *diaria; //Quantidade diaria de ração
+  unsigned int *total;  //Total no stock
+}Racao_s;
 
 //Variáveis de parâmetros
 unsigned int variaveisMenu_1[3]={0,0,0};//Puxar varíaveis da opção no menu e colocar numa array
 unsigned int variaveisMenu_2[3]={0,0,0};
 
-// Seria interesante encapsular essa variáveis em structs ou classes
-
 //Menu 1
-Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2]};
-//unsigned int *qtdaAnimais=&variaveisMenu_1[0],*pesoAnimal=&variaveisMenu_1[1];
-//unsigned int *taxCres=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por dia
-
-//String tipoAnimal;
+Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2],"PEIXES"};
+//animais.tipo="PEIXES";
 
 // Menu 2
-unsigned int *racaoDiaria=&variaveisMenu_2[1],*racaoTratar=&variaveisMenu_2[2];
-unsigned int *qtdaRacao=&variaveisMenu_2[0];
+Racao_s racao = {&variaveisMenu_2[2],&variaveisMenu_2[1],&variaveisMenu_2[0]};
 
 Time horariosRefeicoes[qtdaMaxTratamento];
 Time horaInicialT, horaFinalT;
@@ -289,7 +290,7 @@ bool AtualizarMenu_2(){
     return false;
   }
   
-  *racaoTratar=int(*racaoDiaria/qtdaTratar);
+  *racao.porTrata=int(*racao.diaria/qtdaTratar);
 
   AtualizarTelaMenu(variaveisMenu_2[cursor],cursor);// Atualizar display
   return true;
@@ -306,6 +307,8 @@ void CarregarMenu_3(){
   lcd.print("DATA LOT:"+String(dataLote.dia)+"/"+String(dataLote.mes)+"/"+String(dataLote.ano));
   lcd.setCursor(0, 1);
   lcd.print(F("QTDA REF:"));
+  lcd.setCursor(0, 2);
+  lcd.print("TIPO:"+String(animais.tipo));
 }
 
 bool pedir(const char* texto){

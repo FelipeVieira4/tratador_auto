@@ -33,6 +33,12 @@ typedef struct{
   uint16_t ano;
 }Data_Lote;
 
+typedef struct{
+  unsigned int *qtda; //Quantidade
+  unsigned int *peso; //Média do peso
+  unsigned int *texCres;  //Taxa de crescimento
+}Animais_s;
+
 //Variáveis de parâmetros
 unsigned int variaveisMenu_1[3]={0,0,0};//Puxar varíaveis da opção no menu e colocar numa array
 unsigned int variaveisMenu_2[3]={0,0,0};
@@ -40,8 +46,10 @@ unsigned int variaveisMenu_2[3]={0,0,0};
 // Seria interesante encapsular essa variáveis em structs ou classes
 
 //Menu 1
-unsigned int *qtdaAnimais=&variaveisMenu_1[0],*pesoAnimal=&variaveisMenu_1[1];
-unsigned int *taxCres=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por dia
+Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2]};
+//unsigned int *qtdaAnimais=&variaveisMenu_1[0],*pesoAnimal=&variaveisMenu_1[1];
+//unsigned int *taxCres=&variaveisMenu_1[2]; //Taxa de crescimento do Animal por dia
+
 //String tipoAnimal;
 
 // Menu 2
@@ -130,8 +138,8 @@ void setup() {
 
   //Códigos para testes
 
-  //*qtdaAnimais=20;
-  //Serial.println(*qtdaAnimais);
+  //*animais.qtda=20;
+  //Serial.println(*animais.qtda);
 
   /*
   horaInicialT={5,30};
@@ -139,12 +147,12 @@ void setup() {
   ManejarHorarioTratamento();
   */
 
-  /*
+  
   horariosRefeicoes[horaTratar].hora=23;
   horariosRefeicoes[horaTratar].min=17;
 
   Serial.println(checkTratar());
-  */
+  Serial.println(PerdeuTratar());
 }
 
 
@@ -154,7 +162,7 @@ void loop() {
   }else{
     while(modoSuspenso==false){
       Menu();
-      Serial.println(*qtdaAnimais);
+      Serial.println(*animais.qtda);
     }
   }
 
@@ -445,19 +453,24 @@ int PerdeuTratar(){
   Time tratarHora = horariosRefeicoes[horaTratar];
   DateTime time = rtc.now();
 
+  uint16_t horaMinutos =  time.minute()+( time.hour()*60);
   //Perdeu alguns minutos mas continua na mesma hora pode ser ainda tratado
-  if(tratarHora.hora == time.hour() && tratarHora.min > time.minute())return 3;//Código para tratar agora
+  if(horaMinutos+60 > tratarHora.min+(tratarHora.hora*60))return 3;//Código para tratar agora
 
-  if(tratarHora.hora > time.hour){
+  if(tratarHora.hora > time.hour()){
     uint8_t nextHora= horaTratar;
 
-    //Continuar planejando essa lógica
+    /*Continuar planejando essa lógica
+
+    */
     while(1){
       nextHora++;
 
       //if(nextHora.hora < time.hour() || )
+      return 0;
     }
   }
+  return 1;
 }
 
 void ManejarHorarioTratamento(){

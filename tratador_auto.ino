@@ -6,18 +6,27 @@
 //Variáveis de PRE-configuração
 #define TEMPO_MOTOR_LIG 20 //Tempo do Motor ligado por grama de ração
 
+//#define SEM_JOYSTICK
+
 //Display variáveis
 #define Display_col 20 // Serve para definir o numero de colunas do display utilizado
 #define Display_lin  4 // Serve para definir o numero de linhas do display utilizado
 #define ende  0x27 // Serve para definir o endereço do display.
 
-#define botaoCima 6
-#define botaoBaixo 5
 
-#define botaoEsq 10
-#define botaoDir 9
 
-#define botao 12
+#ifdef SEM_JOYSTICK
+  #define botaoCima 6
+  #define botaoBaixo 5
+
+  #define botaoEsq 10
+  #define botaoDir 9
+#else
+  #define joyStickVX 0xA1
+  #define joyStickVY 0xA0
+#endif
+
+#define botao 7
 
 #define qtdaMaxTratamento 7 // Na real são 8 contando a partir do 0
 #define qtdaMinTratamento 2 // e o valor minímo é 2 sendo o tratar inicial e o final
@@ -61,7 +70,7 @@ Time horaInicialT, horaFinalT;
 uint16_t intervaloTrata;
 uint16_t tempoPorTratam;
 uint8_t qtdaTratar=7;
-uint8_t indexTratar = 2;//index do horário para tratar o peixe
+uint8_t indexTratar = 7;//index do horário para tratar o peixe
 
 
 Data_Lote dataLote;
@@ -72,8 +81,7 @@ bool modoSuspenso = false;
 
 //Bibliotecas externas
 RTC_DS3231 rtc; //Acessar módulo de RTC(acessar data e hora)
-LiquidCrystal_I2C lcd(ende,Display_col,Display_lin); //Acessar o módulo LiquidCrystal(Display) atráves do I2C
-
+LiquidCrystal_I2C lcd(0x27,20,4); //Acessar o módulo LiquidCrystal(Display) atráves do I2C
 
 //Funções
 
@@ -122,13 +130,15 @@ void setup() {
   lcd.clear();
   lcd.backlight();
 
-  // Inicializar portas dos botões
-  pinMode(botaoCima,INPUT_PULLUP);
-  pinMode(botaoBaixo,INPUT_PULLUP);
+  // Inicializar portas dos botões caso não esteja no modo joystick
+  #ifdef SEM_JOYSTICK
+    pinMode(botaoCima,INPUT_PULLUP);
+    pinMode(botaoBaixo,INPUT_PULLUP);
 
-  pinMode(botaoEsq,INPUT_PULLUP);
-  pinMode(botaoDir,INPUT_PULLUP);
-  pinMode(botao,INPUT_PULLUP);
+    pinMode(botaoEsq,INPUT_PULLUP);
+    pinMode(botaoDir,INPUT_PULLUP);
+    pinMode(botao,INPUT_PULLUP);
+  #endif
 
   //Inicializar o menu incial
   CarregarMenuAtual=&CarregarMenu_1;
@@ -145,21 +155,18 @@ void setup() {
   horaFinalT={22,35};
   ManejarHorarioTratamento(&horaInicialT,&horaFinalT,qtdaTratar);
 
-  
-  //horariosRefeicoes[horaTratar].hora=23;
-  //horariosRefeicoes[horaTratar].min=17;
-
   Serial.println(checkTratar());
   Serial.println(PerdeuTratar());
 }
 
 
 void loop() {
-
-    while(modoSuspenso==false){
-      Menu();
-      Serial.println(*animais.qtda);
-    }
+  /*
+  while(modoSuspenso==false){
+    Menu();
+    Serial.println(*animais.qtda);
+  }
+  */
   
 }
 
@@ -234,7 +241,7 @@ void AtualizarTelaMenu(int variavelSelecionada,int8_t cursorPos){
 
 // Atualizar(lógica) do primeiro menu
 bool AtualizarMenu_1(){
-  variaveisMenu_1[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
+  //variaveisMenu_1[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
 
   // Alterar para página 2
   if(cursor>2){
@@ -270,7 +277,7 @@ void CarregarMenu_2(){
 }
 bool AtualizarMenu_2(){
   if(cursor!=2)// Variável 2(ração por tratamento) é imutavel
-  variaveisMenu_2[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
+  //variaveisMenu_2[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
 
   // Alterar de tela
   if(cursor>2){// Ir para tela 3
@@ -304,7 +311,7 @@ void CarregarMenu_3(){
   lcd.setCursor(0, 2);
   lcd.print("TIPO:"+String(animais.tipo));
 }
-
+/*
 bool pedir(const char* texto){
   lcd.setCursor(0, 3);
   lcd.print(texto);
@@ -314,62 +321,7 @@ bool pedir(const char* texto){
     else if(digitalRead(botaoDir)==LOW)return false;
   }
 }
-
-void EditarNovaDataLote(){
-  delay(500);
-
-  // pedir para o úsuario se ele deseja trocar o dataLote
-  if(!pedir("Mudar Data?(Y/n)")){
-    lcd.setCursor(0, 3);
-    lcd.print("Data nao alterada");
-    return;
-  }
-
-  uint8_t posCursos;// posição do cursor para editar dia/mês/ano
-
-  DateTime data = rtc.now();// atualizar para data atual
-  unsigned int dados[]={data.day(),data.month(),data.year()};
-
-  while(1){
-
-    //char dataString[11];//String data para formatar
-    //snprintf(dataString, sizeof(dataString), "%02d/%02d/%04d", dados[0], dados[1], dados[2]);
-
-    lcd.setCursor(9, 0);
-    lcd.print(String(dados[0], DEC) + "/" + String(dados[1], DEC) + "/" + String(dados[2], DEC));
-    
-
-    posCursos+=((digitalRead(botaoDir)==LOW && posCursos < 2)-(digitalRead(botaoEsq)==LOW && posCursos > 0));
-
-    // limpar o o final data
-    lcd.setCursor(17, 0);
-    lcd.print("  ");
-
-    char letra;
-    if(posCursos==0)letra='D';
-    else if(posCursos==1)letra='M';
-    else letra='A';
-
-    lcd.print(letra);//Escrever Caracter correpondente a opção selecionada DIA ou MÊS o ANO
-
-    dados[posCursos]+=-(digitalRead(botaoBaixo)==LOW && dados[posCursos]-1 > 0)+(digitalRead(botaoCima)==LOW);
-
-    //Setar o novo ano ao dataLote
-    if(digitalRead(botao)==LOW){
-      dataLote.dia=dados[0];
-      dataLote.mes=dados[1];
-      dataLote.ano=dados[2];
-
-      //Escrever que a data for alterada com sucesso e sair do loop(voltar ao menu)
-      lcd.setCursor(0, 3);
-      lcd.print("Data alterada    ");
-
-      break;
-    }
-    delay(500);
-  }
-}
-
+*/
 
 // Atualizar(lógica) do segundo menu
 bool AtualizarMenu_3(){
@@ -391,7 +343,7 @@ bool AtualizarMenu_3(){
   */
 
   //Abrir o editor de "dataLote"
-  if(digitalRead(botao)==LOW && cursor == 0)EditarNovaDataLote();
+  //if(digitalRead(botao)==LOW && cursor == 0)EditarNovaDataLote();
 
   return true;
 }
@@ -409,10 +361,7 @@ void Menu(){
   while(1){
     int8_t antigoCursorPos = cursor;
 
-    cursor+=(digitalRead(botaoBaixo)==LOW)-(digitalRead(botaoCima)==LOW && cursor>-1);//Navegar entre as opções
-
-    //if(digitalRead(botaoBaixo)==LOW && opcaoSelecionada<3)opcaoSelecionada++;
-    //else if(digitalRead(botaoCima)==LOW && opcaoSelecionada>0)opcaoSelecionada--;
+    //cursor+=(digitalRead(botaoBaixo)==LOW)-(digitalRead(botaoCima)==LOW && cursor>-1);//Navegar entre as opções
 
     //Atualizar o menu
     if(AtualizarMenuAtual()==false)break;//Trocar de tela true = igual continuar na mesma tela e false = trocar de tela(sair do loop e renicializar)
@@ -442,16 +391,16 @@ bool checkTratar(){
 
   DateTime time = rtc.now();
   uint16_t tempoTotalMinutos = (horaInicialT.hora * 60) + horaInicialT.min;
-  uint16_t timeTotalMinutos = time.minute()+(time.hour()*60);
 
   tempoTotalMinutos+=intervaloTrata*indexTratar;
 
-  if(tempoTotalMinutos>=timeTotalMinutos)return true;
+  if(tempoTotalMinutos>=time.minute()+(time.hour()*60))return true;
   return false;
 }
 
 int PerdeuTratar(){
   DateTime time = rtc.now();
+  
   uint16_t tempoTotalMinutos = (horaInicialT.hora* 60) + horaInicialT.min;
   tempoTotalMinutos+=intervaloTrata*indexTratar;
   uint16_t horaMinutos =  time.minute()+( time.hour()*60);
@@ -460,7 +409,7 @@ int PerdeuTratar(){
 
   //Perdeu alguns minutos mas continua na mesma hora pode ser ainda tratado
   if(horaMinutos <= tempoTotalMinutos+60)return 3;//Código para tratar agora
-  
+
   /*
   if(tratarHora.hora > time.hour()){
     uint8_t nextHora= indexTratar;
@@ -482,36 +431,5 @@ void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda){
   int tempoTotalMinutos = (horaFinalT.hora - horaInicialT.hora) * 60 + (horaFinalT.min - horaInicialT.min);
   // Calcula a duração de cada tratamento em minutos
   intervaloTrata = tempoTotalMinutos / qtdaTratar;
-
-  /*
-  Serial.println("Duração de cada tratamento: " + String(duracaoTratamento) + " minutos");
-
-  Time horarioAtual = horaInicialT;
-
-  horariosRefeicoes[0]=horaInicialT;//Primeiro tratamento é na hora inicial
-
-  //Começar a setar os outros horários
-  for (int i = 1; i <= qtdaTratar-1; i++) {//qtdaTratar-1; pular último valor por que esse nós ja sabemos
-
-    // Avança para o próximo horário com base na duração do tratamento
-    horarioAtual.min += duracaoTratamento;
-
-    // Ajusta a hora e minuto
-    horarioAtual.hora += horarioAtual.min / 60;
-    horarioAtual.min %= 60;
-
-    // Ajusta a hora se ultrapassar meia-noite
-    horarioAtual.hora%=24;
-
-    horariosRefeicoes[i]=horarioAtual;
-  }
-  horariosRefeicoes[qtdaTratar]=horaFinalT;// setar o último vamos
-
-  //Loop para printar no Serial os horários de tratamento
-  
-  for (int i = 0; i <= qtdaTratar; i++) {
-    Serial.println("Tratamento " + String(i) + ": " + String( horariosRefeicoes[i].hora) + ":" + String( horariosRefeicoes[i].minuto));
-  }
-  */
   return;
 }

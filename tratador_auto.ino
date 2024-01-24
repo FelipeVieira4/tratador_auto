@@ -14,16 +14,26 @@
 #define ende  0x27 // Serve para definir o endereço do display.
 
 
+#ifdef SEM_JOYSTICK //Sem joystick
 
-#ifdef SEM_JOYSTICK
   #define botaoCima 6
   #define botaoBaixo 5
 
   #define botaoEsq 10
   #define botaoDir 9
-#else
-  #define joyStickVX 0xA1
-  #define joyStickVY 0xA0
+
+  int8_t movCursorY(uint8_t cursor){ return +(digitalRead(botaoBaixo)==LOW && cursor<2)-(digitalRead(botaoCima)==LOW && cursor>0);}
+  int8_t movCursorX(){ return +(digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW);}
+#else //Com joystick
+  #define joyStickVX A1
+  #define joyStickVY A0
+
+  #define valorAnalogico 648 //Pode mudar para 1024 dependendo do tipo
+  int8_t movCursorY(uint8_t cursor){ return +(analogRead(joyStickVY)>=valorAnalogico && cursor<3)-(analogRead(joyStickVY)==0 && cursor>0);}
+  int8_t movCursorX(){ return +(analogRead(joyStickVX)>=valorAnalogico)-(analogRead(joyStickVX)<=50);}
+
+  bool movDir(){return (analogRead(joyStickVX)==0)?true:false;}
+  bool movEsq(){return (analogRead(joyStickVX)>=valorAnalogico)?true:false;}
 #endif
 
 #define botao 7
@@ -60,7 +70,7 @@ unsigned int variaveisMenu_1[3]={0,0,0};//Puxar varíaveis da opção no menu e 
 unsigned int variaveisMenu_2[3]={0,0,0};
 
 //Menu 1
-Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2],"PEIXES"};
+//Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2],"PEIXES"};
 //animais.tipo="PEIXES";
 
 // Menu 2
@@ -72,12 +82,13 @@ uint16_t tempoPorTratam;
 uint8_t qtdaTratar=7;
 uint8_t indexTratar = 7;//index do horário para tratar o peixe
 
-
 Data_Lote dataLote;
 
 int8_t cursor=0;
 uint8_t pagAtual=1;
+uint8_t novPag = pagAtual;
 bool modoSuspenso = false;
+
 
 //Bibliotecas externas
 RTC_DS3231 rtc; //Acessar módulo de RTC(acessar data e hora)
@@ -92,18 +103,14 @@ bool AtualizarMenu_1(); // Atualizar e fazer parte lógica do menu
 void CarregarMenu_2();
 bool AtualizarMenu_2();
 
-void CarregarMenu_3();
-bool AtualizarMenu_3();
+//void CarregarMenu_3();
+//bool AtualizarMenu_3();
 
-
-void CarregarMenu_DataLote();
-bool AtualizarMenu_DataLote();
-
-void CarregarMenu_QTDARefeicao();
-bool AtualizarMenu_QTDARefeicao();
-
-void AtualizarMenu();
-void Menu();
+void escreverPag();
+void alterarPagina();
+bool pedirAlteracao(); // Pedir para alterar valor de uma variável
+void alterarValor(unsigned int valor);
+bool MudarMenu();
 
 void (*CarregarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
 bool (*AtualizarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
@@ -137,8 +144,8 @@ void setup() {
 
     pinMode(botaoEsq,INPUT_PULLUP);
     pinMode(botaoDir,INPUT_PULLUP);
-    pinMode(botao,INPUT_PULLUP);
   #endif
+  pinMode(botao,INPUT_PULLUP);
 
   //Inicializar o menu incial
   CarregarMenuAtual=&CarregarMenu_1;
@@ -150,6 +157,7 @@ void setup() {
   //*animais.qtda=20;
   //Serial.println(*animais.qtda);
 
+ 
 
   horaInicialT={5,30};
   horaFinalT={22,35};
@@ -161,12 +169,11 @@ void setup() {
 
 
 void loop() {
-  /*
+  
   while(modoSuspenso==false){
     Menu();
-    Serial.println(*animais.qtda);
+    //Serial.println(movEsq());
   }
-  */
   
 }
 
@@ -184,26 +191,72 @@ void Suspenso(){
 //###################################################################################
 // Parte dos menus
 //###################################################################################
+bool MudarMenu(){
 
-//Funções de chamada
-void irPag1(void){
-  CarregarMenuAtual=&CarregarMenu_1;
-  AtualizarMenuAtual=&AtualizarMenu_1;
-  pagAtual=1;
+  if(movDir()){
+    novPag=pagAtual+1;
+  }else if(movEsq() && pagAtual-1 != 0){
+    novPag=pagAtual-1;
+  }
+
+  if(digitalRead(botao)==LOW){
+    lcd.setCursor(0, 3);
+    lcd.print("Desejar mudar para:"+String(novPag));
+
+    delay(5000);
+    if(digitalRead(botao)==LOW){
+      alterarPagina();
+      delay(1000);
+      return true;
+    }else escreverPag();
+  }
+  
+  return false;
 }
 
-void irPag2(void){
-  CarregarMenuAtual=&CarregarMenu_2;
-  AtualizarMenuAtual=&AtualizarMenu_2;
-  pagAtual=2;
+void alterarPagina(){
+  switch(novPag){
+    case 1:
+      CarregarMenuAtual=&CarregarMenu_1;
+      AtualizarMenuAtual=&AtualizarMenu_1;
+    break;
+    case 2:
+      CarregarMenuAtual=&CarregarMenu_2;
+      AtualizarMenuAtual=&AtualizarMenu_2;
+    break;
+  }
+
+  pagAtual=novPag;
+  escreverPag();
+  return;
 }
 
-void irPag3(void){
-  CarregarMenuAtual=&CarregarMenu_3;
-  AtualizarMenuAtual=&AtualizarMenu_3;
-  pagAtual=3;
+void escreverPag(){
+  lcd.setCursor(0, 3);
+  lcd.print("Pagina Anter/Prox.:"+String(pagAtual));
 }
 
+bool pedirAlteracao(){
+  //Se botão tiver precionado
+  if(digitalRead(botao) == LOW){
+    delay(2000);
+    lcd.setCursor(0, 3);
+    lcd.print("Desejar mudar valor?");
+
+    bool res=true;
+    while(digitalRead(botao) == HIGH){
+      if(movEsq())res=true;
+      else if(movDir())res=false;
+    }
+    escreverPag();
+    return res;
+  }
+  return false;
+}
+
+void alterarValor(unsigned int valor){
+
+}
 // --------------------
 //    Primeiro Menu
 // ----------------------
@@ -212,11 +265,11 @@ void irPag3(void){
 void CarregarMenu_1(){
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("QTDA ANI(U):");
+  lcd.print("Saldo Racao:");
   lcd.setCursor(0, 1);
-  lcd.print("PESO ANI(Kg):");
+  lcd.print("Consumo dia:");
   lcd.setCursor(0, 2);
-  lcd.print("TAX CRES(%):");
+  lcd.print("Dias de estoque:");
 
   for(uint8_t i = 0; i < 3; i++){
     AtualizarTelaMenu(variaveisMenu_1[i],i);
@@ -224,35 +277,38 @@ void CarregarMenu_1(){
 
 }
 
-// Atualizar a variável onde o cursor estiver em cima
+// Atualiza/Escreve as variáveis onde o cursor estiver em cima
 void AtualizarTelaMenu(int variavelSelecionada,int8_t cursorPos){
-  if(cursorPos==3)return;// não gastar tempo processamento isso
 
-  //Limpar o campo
-  lcd.setCursor(12, cursorPos);
-  lcd.print("      ");
-  lcd.setCursor(12, cursorPos);
+
+
+  if(cursorPos==3)return;// não gastar tempo processamento isso
+  else if(pagAtual == 1 && cursorPos==2){
+    lcd.setCursor(16, cursorPos);
+    lcd.print("   ");
+    lcd.setCursor(16, cursorPos);
+    lcd.print(String(variavelSelecionada));//Já que foi validado então printar aqui
+    return;
+  }else{
+    lcd.setCursor(12, cursorPos);
+    lcd.print("      ");
+    lcd.setCursor(12, cursorPos);
+  }
 
   if(pagAtual == 1)
-    lcd.print("<"+((cursorPos!=0)?String(float(variavelSelecionada)/1000):String(variavelSelecionada))+">");//Caso opção for 1 que utiliza KG escrever em floats
+    lcd.print(String(float(variavelSelecionada)/1000));//Caso opção for 1 que utiliza KG escrever em floats
   else lcd.print("<"+String(variavelSelecionada,DEC)+">");
   return;
 }
 
 // Atualizar(lógica) do primeiro menu
 bool AtualizarMenu_1(){
-  //variaveisMenu_1[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
 
-  // Alterar para página 2
-  if(cursor>2){
-    irPag2();
-    cursor=0;
-    return false;
-  }
+  if(cursor == 0 && pedirAlteracao()){
+    Serial.println("teste");
+  };
+  //AtualizarTelaMenu(variaveisMenu_1[cursor],cursor);//Rescrever o valor selecionado na tela
 
-  if(cursor<0)cursor=0;
-
-  AtualizarTelaMenu(variaveisMenu_1[cursor],cursor);//Rescrever o valor selecionado na tela
   return true;
 }
 
@@ -263,11 +319,11 @@ bool AtualizarMenu_1(){
 void CarregarMenu_2(){
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("QTDA RAC(G):");
+  lcd.print("Ini Lote:");
   lcd.setCursor(0, 1);
-  lcd.print("RACAO DI(G):");
+  lcd.print("Qtde Peixes:");
   lcd.setCursor(0, 2);
-  lcd.print("RACAO TR(G):");
+  lcd.print("Dias deste Lote:");
 
 
   for(uint8_t i = 0; i < 3; i++){
@@ -276,21 +332,18 @@ void CarregarMenu_2(){
 
 }
 bool AtualizarMenu_2(){
+  /*
   if(cursor!=2)// Variável 2(ração por tratamento) é imutavel
-  //variaveisMenu_2[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
+    variaveisMenu_2[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
 
   // Alterar de tela
-  if(cursor>2){// Ir para tela 3
-    irPag3();
-    cursor=0;
-    return false;
-  }
-  else if(cursor<0){// Voltar para tela 1
-    irPag1();
-    cursor=3;
-    return false;
-  }
   
+
+  if(cursor==0 && pedirAlteracao()){
+    DateTime
+  }
+
+  */
   *racao.porTrata=int(*racao.diaria/qtdaTratar);
 
   AtualizarTelaMenu(variaveisMenu_2[cursor],cursor);// Atualizar display
@@ -301,71 +354,18 @@ bool AtualizarMenu_2(){
 // Terceiro  Menu
 // -------------
 
-// Desenhar textos bases no display
-void CarregarMenu_3(){
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("DATA LOT:"+String(dataLote.dia)+"/"+String(dataLote.mes)+"/"+String(dataLote.ano));
-  lcd.setCursor(0, 1);
-  lcd.print(F("QTDA REF:"));
-  lcd.setCursor(0, 2);
-  lcd.print("TIPO:"+String(animais.tipo));
-}
-/*
-bool pedir(const char* texto){
-  lcd.setCursor(0, 3);
-  lcd.print(texto);
-
-  while(1){
-    if(digitalRead(botaoEsq)==LOW)return true;
-    else if(digitalRead(botaoDir)==LOW)return false;
-  }
-}
-*/
-
-// Atualizar(lógica) do segundo menu
-bool AtualizarMenu_3(){
-
-  if(cursor<0){// Voltar para tela 2
-    irPag2();
-    cursor=3;
-    return false;
-  }
-
-  /*
-  if(digitalRead(botao)==LOW && cursor == 0){
-    switch(cursor){
-      case 0:// Opcão DataLote
-        EditarNovaDataLote();
-      break;
-    }
-  }
-  */
-
-  //Abrir o editor de "dataLote"
-  //if(digitalRead(botao)==LOW && cursor == 0)EditarNovaDataLote();
-
-  return true;
-}
-
 
 void Menu(){
-  CarregarMenuAtual();
-
 
   //Atualizar pagina da tela
-  lcd.setCursor(0, 3);
-  lcd.print("P:"+String(pagAtual)+"/3");
+  CarregarMenuAtual();
+  escreverPag();
+
   
   //Loop do Menu Principal
   while(1){
     int8_t antigoCursorPos = cursor;
-
-    //cursor+=(digitalRead(botaoBaixo)==LOW)-(digitalRead(botaoCima)==LOW && cursor>-1);//Navegar entre as opções
-
-    //Atualizar o menu
-    if(AtualizarMenuAtual()==false)break;//Trocar de tela true = igual continuar na mesma tela e false = trocar de tela(sair do loop e renicializar)
-
+    cursor+=movCursorY(cursor);//Navegar entre as opções
 
     //Atualizar o cursor no menu
     if(cursor!=antigoCursorPos){
@@ -376,6 +376,14 @@ void Menu(){
       lcd.print("*");
     }
 
+
+    //Atualizar o menu
+    
+    if(cursor==3){
+      if(MudarMenu()==true)break;//Trocar de tela true = igual continuar na mesma tela e false = trocar de tela(sair do loop e renicializar)
+    }else{
+      AtualizarMenuAtual();
+    }
 
     delay(500);
   }

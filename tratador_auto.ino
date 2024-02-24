@@ -1,189 +1,304 @@
-#include<RTClib.h>
-#include<Wire.h>
-#include<LiquidCrystal_I2C.h>
-#include<stdint.h>
+#include <Wire.h>
+#include <stdint.h>
+
+#include <LiquidCrystal_I2C.h>
+#include <RTClib.h>
+
+#include <SD.h>
+#include <SPI.h>
+
+// pinos do sc-card (10-cs, 11-mosi, 12-miso, 13-sck) +vcc e GND.
+// pinos do LCD (SCL e SDA) +vcc e GND
+// Pinos do joystick (7-sw, A0-vry, A1-vrx) +vcc e GND
+// Pinos do DS3231 (A4-SDA, A5-SCL) +vcc e GND
 
 //Variáveis de PRE-configuração
-#define TEMPO_MOTOR_LIG 20 //Tempo do Motor ligado por grama de ração
+#define TEMPO_MOTOR_LIG 20    // Tempo do Motor ligado por grama de ração
+#define TEMPERATURA_TRATAR 15 // Em Grau Celsius
 
-//#define SEM_JOYSTICK
+// Pinos do Display LCD(16x4 I2C)
+#define Display_col 20  // Serve para definir o numero de colunas do display utilizado
+#define Display_lin 4   // Serve para definir o numero de linhas do display utilizado
+#define ende 0x27       // Serve para definir o endereço do display.
 
-//Display variáveis
-#define Display_col 20 // Serve para definir o numero de colunas do display utilizado
-#define Display_lin  4 // Serve para definir o numero de linhas do display utilizado
-#define ende  0x27 // Serve para definir o endereço do display.
+//Componentes pinos
+#define pinoSS 10
+#define buzzer 5
+#define rele1 4
+#define rele2 6
+#define vamosTratar 3
 
+void tom(char pino, int frequencia, int duracao);
 
-#ifdef SEM_JOYSTICK //Sem joystick
-
-  #define botaoCima 6
-  #define botaoBaixo 5
-
-  #define botaoEsq 10
-  #define botaoDir 9
-
-  int8_t movCursorY(uint8_t cursor){ return +(digitalRead(botaoBaixo)==LOW && cursor<2)-(digitalRead(botaoCima)==LOW && cursor>0);}
-  int8_t movCursorX(){ return +(digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW);}
-#else //Com joystick
-  #define joyStickVX A1
-  #define joyStickVY A0
-
-  #define valorAnalogico 648 //Pode mudar para 1024 dependendo do tipo
-  int8_t movCursorY(uint8_t cursor){ return +(analogRead(joyStickVY)>=valorAnalogico && cursor<3)-(analogRead(joyStickVY)==0 && cursor>0);}
-  int8_t movCursorX(){ return +(analogRead(joyStickVX)>=valorAnalogico)-(analogRead(joyStickVX)<=50);}
-
-  bool movDir(){return (analogRead(joyStickVX)==0)?true:false;}
-  bool movEsq(){return (analogRead(joyStickVX)>=valorAnalogico)?true:false;}
-#endif
-
+// Pinos do Joystick
+#define joyStickVX A1
+#define joyStickVY A0
 #define botao 7
 
-#define qtdaMaxTratamento 7 // Na real são 8 contando a partir do 0
-#define qtdaMinTratamento 2 // e o valor minímo é 2 sendo o tratar inicial e o final
+#define valorAnalogico 648  //Pode mudar para 1024 dependendo do tipo joystick
 
-typedef struct{
+#define arquivoDoSistema "work.txt" // Nome do arquivo
+
+//#define SERIAL_MODE // utilizado como DEBUG para verficar se todos os componentes do hardware estão funcionando
+
+//Funções do joystick
+
+//Mover cursor verticalmente no menu
+int8_t movCursorY(uint8_t cursor) {
+  return +(analogRead(joyStickVY) >= valorAnalogico && cursor < 3) - (analogRead(joyStickVY) <= 50 && cursor > 0);
+}
+
+
+int8_t movValorY() {
+  return -(analogRead(joyStickVY) >= valorAnalogico) + (analogRead(joyStickVY) <= 50);
+}
+int8_t movValorX() {
+  return -(analogRead(joyStickVX) <= valorAnalogico) + (analogRead(joyStickVX) >= 50);
+}
+
+
+
+bool movDir() {
+  return analogRead(joyStickVX) >= valorAnalogico;
+}
+bool movEsq() {
+  return analogRead(joyStickVX) == 0;
+}
+
+#define qtdaMaxTratamento 7  // Na real são 8 contando a partir do 0
+#define qtdaMinTratamento 2  // e o valor minímo é 2 sendo o tratar inicial e o final
+
+typedef struct {
   uint8_t hora;
   int16_t min;
-}Time;
+  uint16_t seg;
+} Time;
 
-typedef struct{
+typedef struct {
   uint8_t dia;
   uint8_t mes;
   uint16_t ano;
-}Data_Lote;
+} Data_Lote;
 
-typedef struct{
-  unsigned int *qtda; //Quantidade
-  unsigned int *peso; //Média do peso
-  unsigned int *texCres;  //Taxa de crescimento
-  char tipo[8];
-}Animais_s;
 
-typedef struct{
-  unsigned int *porTrata; //Quantidade de ração por tratamento
-  unsigned int *diaria; //Quantidade diaria de ração
-  unsigned int *total;  //Total no stock
-}Racao_s;
+// Structs dos MENUS
+typedef struct {
+  unsigned int *saldo;          //Saldo Ração
+  unsigned int *consumoDiario;  //Consumo dia
+  unsigned int *diasEstoque;    //Dias de estoque pegar da variável
+} Menu_1;
 
-//Variáveis de parâmetros
-unsigned int variaveisMenu_1[3]={0,0,0};//Puxar varíaveis da opção no menu e colocar numa array
-unsigned int variaveisMenu_2[3]={0,0,0};
+typedef struct {
+  Data_Lote *data;           //Ini Lote
+  unsigned int *qtdePeixes;  //Qtde Peixes
+  unsigned int *diasLote;    //Dias deste Lote
+} Menu_2;
+
+typedef struct {
+  unsigned int *taxCrescimentoDia;  //Tax cresce dia
+  unsigned int *pesTeorico;         //Pes teorico
+  unsigned int *racaoPeixeDia;      //Ração peixe dia
+} Menu_3;
+
+typedef struct {
+  Time *solsticioVer;        //Solstício Verão
+  Time *solsticioInv;        //Solstício Inverno
+  unsigned int *minRetardo;  //Minutos Retardo
+} Menu_4;
 
 //Menu 1
-//Animais_s animais = {&variaveisMenu_1[0],&variaveisMenu_1[1],&variaveisMenu_1[2],"PEIXES"};
-//animais.tipo="PEIXES";
+unsigned int variaveisMenu_1[3] = { 0, 0, 0 };  //Puxar varíaveis da opção no menu e colocar numa array
+Menu_1 menu_1 = { &variaveisMenu_1[0], &variaveisMenu_1[1], &variaveisMenu_1[2] };
 
-// Menu 2
-Racao_s racao = {&variaveisMenu_2[2],&variaveisMenu_2[1],&variaveisMenu_2[0]};
+//Menu 2
+Data_Lote dataLote;
+unsigned int variaveisMenu_2[3] = { 0, 0 };
+Menu_2 menu_2 = { &dataLote, &variaveisMenu_2[0], &variaveisMenu_2[1] };
+
+//Menu 3
+unsigned int variaveisMenu_3[3] = { 0, 0, 0 };  //Puxar varíaveis da opção no menu e colocar numa array
+Menu_3 menu_3 = { &variaveisMenu_3[0], variaveisMenu_3[1], variaveisMenu_3[2] };
 
 Time horaInicialT, horaFinalT;
+
 uint16_t intervaloTrata;
 uint16_t tempoPorTratam;
-uint8_t qtdaTratar=7;
-uint8_t indexTratar = 7;//index do horário para tratar o peixe
+uint8_t qtdaTratar = 7;
+uint8_t indexTratar = 7;  //index do horário para tratar o peixe
 
-Data_Lote dataLote;
 
-int8_t cursor=0;
-uint8_t pagAtual=1;
-uint8_t novPag = pagAtual;
-bool modoSuspenso = false;
 
+//Variáveis para o menu
+uint8_t cursor = 0;
+uint8_t antigoCursorPos = 5;
+uint8_t pagAtual = 1;
+uint8_t novPag = pagAtual + 1;
+bool modoSuspenso = true;
+bool atualizarMenu = false;
 
 //Bibliotecas externas
-RTC_DS3231 rtc; //Acessar módulo de RTC(acessar data e hora)
-LiquidCrystal_I2C lcd(0x27,20,4); //Acessar o módulo LiquidCrystal(Display) atráves do I2C
+RTC_DS3231 rtc;                                         //Acessar módulo de RTC(acessar data e hora)
+LiquidCrystal_I2C lcd(ende, Display_col, Display_lin);  //Acessar o módulo LiquidCrystal(Display) atráves do I2C
+DateTime time;
+File sistemaFile;
 
 //Funções
 
-//  menu
-void CarregarMenu_1(); // Desenhar textos base do menu
-bool AtualizarMenu_1(); // Atualizar e fazer parte lógica do menu
+//  Menus
+void CarregarMenu_1();   // Desenhar textos base do menu
+bool AtualizarMenu_1();  // Atualizar e fazer parte lógica do menu
 
 void CarregarMenu_2();
 bool AtualizarMenu_2();
 
-//void CarregarMenu_3();
-//bool AtualizarMenu_3();
+void CarregarMenu_3();
+bool AtualizarMenu_3();
 
-void escreverPag();
-void alterarPagina();
-bool pedirAlteracao(); // Pedir para alterar valor de uma variável
-void alterarValor(unsigned int valor);
+void CarregarMenu_4();
+bool AtualizarMenu_4();
+
+//  Funções para os menus
 bool MudarMenu();
+void alterarPagina();   //Função que faz alteração das páginas
+bool pedirAlteracao();  //Commando que faz pedido de permissão para alterar ás páginas
+unsigned int alterarValor(uint8_t pos);
+void atualizarHora(Time *tempo, bool primeiraVez);
+bool pularPag();
 
-void (*CarregarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
-bool (*AtualizarMenuAtual)(void);// Ponteiro para função do menu(lógica) que estiver rodando
+void lerTela(const char *tela, uint8_t start);  //Ler ás telas do SD para o LCD
 
-// Funções
-bool CheckTratar();
-int PerdeuTratar(); // Se passou o horário e não tratou
-void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda); // Orgainzar/Reoganizar os horários do tratamento
+// Printa no LCD (escrever informaçãos especificas na tela)
+void escreverPag();     //Sempre que escreve algo na última linha usar esse comando para rescrever as páginas
+void horaPrint(Time *tempo, uint8_t lin);
+void escreverVariavel(unsigned int var, uint8_t col, uint8_t row, bool floatFormat);
 
-void setup() {
-  delay(1000);
-  
-  // put your setup code here, to run once:
-  Serial.begin(9600);
+// Ponteiros para os menus
+void (*CarregarMenuAtual)(void);   // Ponteiro para função do menu(lógica) que estiver rodando
+bool (*AtualizarMenuAtual)(void);  // Ponteiro para função do menu(lógica) que estiver rodando
 
-  // Incializar RTC
-  while(!rtc.begin())Serial.println("DS3231 não encontrado");
+void modoAplicacao(); // Modo onde aplicação faz tratamento e fica em modo suspenso
 
+// Funções do sistema
+bool horaTratar();
+bool tempTratar();
+
+int PerdeuTratar();                                                      // Se passou o horário e não tratou
+void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda);  // Orgainzar/Reoganizar os horários do tratamento
+
+
+void (*resetFunc)(void) = 0;  //Resetar o arduino
+
+void SalvarDados();
+void CarregarDados();
+
+void setaHorarios(); //Primeira vez que o programa abrir
+void atualizarHorarios(Time *horario,int32_t segundos,bool soma); //Atualizar todo dia
+int diasDoMes(int month, int year);
+
+// Inicio da execução do SD CARD
+void setup() {  // Executado uma vez quando ligado o Arduino
+  pinMode(buzzer, OUTPUT);
+  pinMode(rele1, OUTPUT);
+  pinMode(rele2, OUTPUT);
+  digitalWrite(rele1, HIGH);
+  digitalWrite(rele2, HIGH);
+  pinMode(vamosTratar, INPUT_PULLUP);
+
+  pinMode(pinoSS, OUTPUT);  // Declara pinoSS como saída
+
+  Serial.begin(9600);  // Define BaundRate
+
+#ifdef SERIAL_MODE
+  if (SD.begin()) {                              // Inicializa o SD Card
+    Serial.println("SD Card pronto para uso.");  // Imprime na tela
+  } else {
+    Serial.println("Falha na inicialização do SD Card.");
+    while (true)
+      ;
+    return;
+  }
+#else
+  while (!SD.begin())
+    ;
+#endif
+
+// Incializar RTC
+#ifdef SERIAL_MODE
+  while (!rtc.begin()) Serial.println("DS3231 não encontrado");
   Serial.println("DS3231 encontrado");
-  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));// Ajustar o horário
+#else
+  while (!rtc.begin())
+    ;
+#endif
+
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));  // Ajustar o horário
 
   // Incializar LCD
   lcd.init();
   lcd.clear();
   lcd.backlight();
-
+  lcd.backlight();
   // Inicializar portas dos botões caso não esteja no modo joystick
-  #ifdef SEM_JOYSTICK
-    pinMode(botaoCima,INPUT_PULLUP);
-    pinMode(botaoBaixo,INPUT_PULLUP);
-
-    pinMode(botaoEsq,INPUT_PULLUP);
-    pinMode(botaoDir,INPUT_PULLUP);
-  #endif
-  pinMode(botao,INPUT_PULLUP);
+  pinMode(botao, INPUT_PULLUP);
 
   //Inicializar o menu incial
-  CarregarMenuAtual=&CarregarMenu_1;
-  AtualizarMenuAtual=&AtualizarMenu_1;
+  CarregarMenuAtual = &CarregarMenu_1;
+  AtualizarMenuAtual = &AtualizarMenu_1;
 
+  CarregarDados();
 
-  //Códigos para testes
-
-  //*animais.qtda=20;
-  //Serial.println(*animais.qtda);
-
- 
-
-  horaInicialT={5,30};
-  horaFinalT={22,35};
-  ManejarHorarioTratamento(&horaInicialT,&horaFinalT,qtdaTratar);
-
-  Serial.println(checkTratar());
-  Serial.println(PerdeuTratar());
+  setaHorarios();
+  ManejarHorarioTratamento(&horaInicialT, &horaFinalT, qtdaTratar);
 }
 
 
 void loop() {
-  
-  while(modoSuspenso==false){
-    Menu();
-    //Serial.println(movEsq());
+  /*
+Serial.println("Chamando Peixes"); 
+for (int beep = 0;beep<5;beep ++){
+  if (beep < 5){
+   Serial.println(beep); 
+   tone(buzzer,900);
+   digitalWrite(rele, LOW);
+ 
+   delay(200);
+   noTone(buzzer);
+     digitalWrite(rele, HIGH);
+   delay(200);
   }
-  
+  else{
+    break;
+  }
+}
+delay(5000);
+*/
+  (modoSuspenso)?modoAplicacao():Menu();
+  //buzinar();
 }
 
-void Suspenso(){
-  while(1){
+void modoAplicacao() {
 
-    if(checkTratar()){
-      //Tratar
-      if(indexTratar == qtdaTratar)indexTratar=0;
-      else indexTratar++;
+  lcd.noBacklight();
+  lcd.clear();
+
+  while (1) {
+    time = rtc.now();
+
+    if(horaTratar() && tempTratar()){
+      // código para tratar
+    }
+    else if(time.hour() == 0 && time.minute() == 0){
+      // recalcular os dados e salvar e reniciar o arduino
+      
+      //SalvarDados();
+      resetFunc();
+    }
+    if(digitalRead(botao) == LOW){
+      delay(400);
+      if(digitalRead(botao) == LOW){
+        modoSuspenso = false;
+        break;
+      }
     }
   }
 }
@@ -191,62 +306,168 @@ void Suspenso(){
 //###################################################################################
 // Parte dos menus
 //###################################################################################
-bool MudarMenu(){
 
-  if(movDir()){
-    novPag=pagAtual+1;
-  }else if(movEsq() && pagAtual-1 != 0){
-    novPag=pagAtual-1;
+void setaHorarios(){
+
+  time = rtc.now();
+
+  uint8_t mesIndex = time.month();
+  //uint8_t mesIndex = 12;
+  uint8_t mesInicial,somaDias;
+  bool soma;
+
+  if (mesIndex <= 6){
+    mesInicial = 1;
+
+    horaInicialT = { 5, 25, 0 };
+    horaFinalT = { 19, 11, 0 };
+    soma=true;
+  }
+  else{
+    mesInicial = 7;
+
+    horaInicialT = { 7, 4, 0 };
+    horaFinalT = { 17, 34, 0 };
+    soma=false;
   }
 
-  if(digitalRead(botao)==LOW){
+  while (mesInicial < mesIndex) {
+
+  #ifdef SERIAL_MODE
+    Serial.println(mesInicial);
+    Serial.println("dia:"+String(daysInMonth((int)mesInicial,(int)time.year())));
+  #endif
+
+    somaDias+=diasDoMes((int)mesInicial,(int)time.year());
+    mesInicial++;
+  }
+
+  somaDias+=time.day();
+  //somaDias+=30;
+  #ifdef SERIAL_MODE
+    Serial.println(somaDias);
+  #endif
+
+  int32_t segundos = (somaDias * 33);
+
+  if(soma){
+    atualizarHorarios(&horaInicialT,segundos,true);
+    atualizarHorarios(&horaFinalT,segundos,false);
+  }else{
+    atualizarHorarios(&horaInicialT,segundos,false);
+    atualizarHorarios(&horaFinalT,segundos,true);
+  }
+
+  return;
+}
+
+void atualizarHorarios(Time *horario,int32_t segundos,bool soma){
+  if(soma){
+    horario->min += segundos / 60;
+    horario->seg = segundos % 60;
+    horario->hora += horario->min / 60;
+    horario->min %= 60;
+  }else{
+    int32_t horas = segundos / 3600; // calcular o número de horas
+    segundos %= 3600; // atualizar segundos para o restante após a subtração das horas
+    int32_t minutos = segundos / 60; // calcular o número de minutos restantes
+    segundos %= 60; // calcular os segundos restantes
+
+    // Subtrair as horas, minutos e segundos calculados dos valores atuais
+    horario->hora -= horas;
+    horario->min -= minutos;
+    horario->seg = segundos;
+
+    // Ajustar as horas e minutos para garantir que estejam dentro dos limites
+    while (horario->min < 0) {
+      horario->min += 60;
+      horario->hora--;
+    }
+    while (horario->hora < 0) {
+      horario->hora += 24;
+    }
+  }
+
+  return;
+}
+
+bool MudarMenu() {
+
+  if (movDir() && pagAtual + 1 <= 5) {
+    novPag = pagAtual + 1;
+  } else if (movEsq() && pagAtual - 1 != 0) {
+    novPag = pagAtual - 1;
+  }
+
+  if (digitalRead(botao) == LOW) {
     lcd.setCursor(0, 3);
-    lcd.print("Desejar mudar para:"+String(novPag));
-
-    delay(5000);
-    if(digitalRead(botao)==LOW){
-      alterarPagina();
-      delay(1000);
-      return true;
-    }else escreverPag();
+    lcd.print("Mudando para:" + String(novPag));
+    alterarPagina();
+    return true;
   }
-  
+
   return false;
 }
 
-void alterarPagina(){
-  switch(novPag){
+// Lógica de alterar as págianas
+void alterarPagina() {
+  switch (novPag) {
     case 1:
-      CarregarMenuAtual=&CarregarMenu_1;
-      AtualizarMenuAtual=&AtualizarMenu_1;
-    break;
+      CarregarMenuAtual = &CarregarMenu_1;
+      AtualizarMenuAtual = &AtualizarMenu_1;
+      break;
     case 2:
-      CarregarMenuAtual=&CarregarMenu_2;
-      AtualizarMenuAtual=&AtualizarMenu_2;
-    break;
+      CarregarMenuAtual = &CarregarMenu_2;
+      AtualizarMenuAtual = &AtualizarMenu_2;
+      break;
+    case 3:
+      CarregarMenuAtual = &CarregarMenu_3;
+      AtualizarMenuAtual = &AtualizarMenu_3;
+      break;
+    case 4:
+      CarregarMenuAtual = &CarregarMenu_4;
+      AtualizarMenuAtual = &AtualizarMenu_4;
+      break;
   }
 
-  pagAtual=novPag;
+  pagAtual = novPag;
   escreverPag();
   return;
 }
 
-void escreverPag(){
+//Rescrever a linha 3 indicando a página
+void escreverPag() {
   lcd.setCursor(0, 3);
-  lcd.print("Pagina Anter/Prox.:"+String(pagAtual));
+  lcd.print("Pagina Atual:" + String(pagAtual) + " A/P:" + String(novPag));
 }
 
-bool pedirAlteracao(){
-  //Se botão tiver precionado
-  if(digitalRead(botao) == LOW){
-    delay(2000);
-    lcd.setCursor(0, 3);
-    lcd.print("Desejar mudar valor?");
+bool pularPag() {
+  if (digitalRead(botao) == LOW) {
+    delay(500);
+    if (digitalRead(botao) != LOW) {
+      alterarPagina();
+      return true;
+    }
+  }
+  return false;
+}
 
-    bool res=true;
-    while(digitalRead(botao) == HIGH){
-      if(movEsq())res=true;
-      else if(movDir())res=false;
+//Perdir alteração de um variável(default = sim)
+bool pedirAlteracao() {
+  //Se botão tiver precionado
+  //delay(5000);
+  if (digitalRead(botao) == LOW) {
+    lcd.setCursor(0, 3);
+    lcd.print("Deseja mudar valor?");
+    delay(500);
+
+    bool res = true;
+    while (digitalRead(botao) == HIGH) {
+      if (movEsq()) res = true;
+      else if (movDir()) res = false;
+
+      lcd.setCursor(19, 3);
+      lcd.print(res ? "S" : "N");
     }
     escreverPag();
     return res;
@@ -254,60 +475,93 @@ bool pedirAlteracao(){
   return false;
 }
 
-void alterarValor(unsigned int valor){
+//Lógica de alterar variáveis(apenas do tipo unsigned int)
+unsigned int alterarValor(uint8_t pos) {
 
+  char valorTexto[7] = "000000";  // 6 "0" e um "\0"
+  uint8_t posCursor = 0;
+  delay(1000);
+  while (digitalRead(botao) == HIGH) {
+    int8_t inputX = movValorX();
+    int8_t inputY = movValorY();
+
+
+    //Printar # no cursor
+    lcd.setCursor(pos + posCursor, cursor);
+    lcd.print("#");
+
+    if (posCursor + inputX >= 0 && posCursor + inputX < 6) posCursor += inputX;
+
+    if (valorTexto[posCursor] + inputY >= '0' && valorTexto[posCursor] + inputY <= '9') {
+      valorTexto[posCursor] += movValorY();
+    }
+
+    //Printar o número no cursor
+    delay(100);
+    lcd.setCursor(pos, cursor);
+    lcd.print(valorTexto);
+    delay(175);
+  }
+  atualizarMenu = true;
+
+  return (unsigned int)atoi(valorTexto);
 }
-// --------------------
+
+//------------------- LCD --------------------------------//
+
+// Atualiza/Escreve as variáveis onde o cursor estiver em cima
+void escreverVariavel(unsigned int var, uint8_t col, uint8_t row, bool floatFormat) {
+  lcd.setCursor(col, row);
+  for (uint8_t i = col; i < 20; i++) lcd.print(" ");  //Limpar display
+
+  lcd.setCursor(col, row);
+  (floatFormat) ? lcd.print(String((float)var / 1000)) : lcd.print(var);
+  return;
+}
+
+void lerTela(const char *tela, uint8_t start) {
+  sistemaFile = SD.open(tela, FILE_READ);
+
+  if (sistemaFile) {
+    uint8_t linhas = start;
+    lcd.setCursor(0, linhas);
+    while (sistemaFile.available()) {  // Exibe o conteúdo do Arquivo
+      //Serial.write(myFile.read());
+
+      char c = sistemaFile.read();
+      if (c == '\n') {
+        linhas++;
+        lcd.setCursor(0, linhas);
+      } else {
+        if (c >= 32) lcd.print((char)c);  //Limpar caracteres sujos
+      }
+    }
+
+    sistemaFile.close();  // Fecha o Arquivo após ler
+  }
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------------
+//    MENUS
+// ------------------------------------------------------------------------------------------------------------------------------------
+
+// ---------------------
 //    Primeiro Menu
 // ----------------------
 
 // Desenhar textos bases no display
-void CarregarMenu_1(){
+void CarregarMenu_1() {
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Saldo Racao:");
-  lcd.setCursor(0, 1);
-  lcd.print("Consumo dia:");
-  lcd.setCursor(0, 2);
-  lcd.print("Dias de estoque:");
-
-  for(uint8_t i = 0; i < 3; i++){
-    AtualizarTelaMenu(variaveisMenu_1[i],i);
-  }
-
-}
-
-// Atualiza/Escreve as variáveis onde o cursor estiver em cima
-void AtualizarTelaMenu(int variavelSelecionada,int8_t cursorPos){
+  lerTela("tela_a_1.txt", 0);
 
 
-
-  if(cursorPos==3)return;// não gastar tempo processamento isso
-  else if(pagAtual == 1 && cursorPos==2){
-    lcd.setCursor(16, cursorPos);
-    lcd.print("   ");
-    lcd.setCursor(16, cursorPos);
-    lcd.print(String(variavelSelecionada));//Já que foi validado então printar aqui
-    return;
-  }else{
-    lcd.setCursor(12, cursorPos);
-    lcd.print("      ");
-    lcd.setCursor(12, cursorPos);
-  }
-
-  if(pagAtual == 1)
-    lcd.print(String(float(variavelSelecionada)/1000));//Caso opção for 1 que utiliza KG escrever em floats
-  else lcd.print("<"+String(variavelSelecionada,DEC)+">");
-  return;
+  escreverVariavel(variaveisMenu_1[0], 13, 0, true);
+  escreverVariavel(variaveisMenu_1[1], 13, 1, true);
+  escreverVariavel(variaveisMenu_1[2], 16, 2, false);
 }
 
 // Atualizar(lógica) do primeiro menu
-bool AtualizarMenu_1(){
-
-  if(cursor == 0 && pedirAlteracao()){
-    Serial.println("teste");
-  };
-  //AtualizarTelaMenu(variaveisMenu_1[cursor],cursor);//Rescrever o valor selecionado na tela
+bool AtualizarMenu_1() {
 
   return true;
 }
@@ -315,38 +569,40 @@ bool AtualizarMenu_1(){
 // -------------
 // Segundo  Menu
 // -------------
-
-void CarregarMenu_2(){
-  lcd.clear();
+void lotePrint() {
   lcd.setCursor(0, 0);
-  lcd.print("Ini Lote:");
-  lcd.setCursor(0, 1);
-  lcd.print("Qtde Peixes:");
-  lcd.setCursor(0, 2);
-  lcd.print("Dias deste Lote:");
-
-
-  for(uint8_t i = 0; i < 3; i++){
-    AtualizarTelaMenu(variaveisMenu_2[i],i);
-  }
-
+  lcd.print("Dt Lote: " + String(dataLote.dia) + "/" + String(dataLote.mes) + "/" + String(dataLote.ano));
+  return;
 }
-bool AtualizarMenu_2(){
-  /*
-  if(cursor!=2)// Variável 2(ração por tratamento) é imutavel
-    variaveisMenu_2[cursor]+=((digitalRead(botaoDir)==LOW)-(digitalRead(botaoEsq)==LOW && variaveisMenu_1[cursor]-1 >= 0)) * 10;
 
-  // Alterar de tela
-  
 
-  if(cursor==0 && pedirAlteracao()){
-    DateTime
+void CarregarMenu_2() {
+  lcd.clear();
+  lotePrint();
+  lerTela("tela_b_2.txt", 1);
+
+  escreverVariavel(variaveisMenu_2[0], 13, 1, false);
+  escreverVariavel(variaveisMenu_2[1], 16, 2, false);
+}
+bool AtualizarMenu_2() {
+
+  if (cursor == 0 && pedirAlteracao()) {
+    time = rtc.now();
+
+    dataLote.dia = time.day();
+    dataLote.mes = time.month();
+    dataLote.ano = 2024;
+
+    atualizarMenu = true;
   }
 
-  */
-  *racao.porTrata=int(*racao.diaria/qtdaTratar);
+  else if (cursor == 1 && pedirAlteracao()) {
+    variaveisMenu_2[0] = alterarValor(12);
+  }
 
-  AtualizarTelaMenu(variaveisMenu_2[cursor],cursor);// Atualizar display
+  //CarregarMenu_2();
+  //*racao.porTrata=int(*racao.diaria/qtdaTratar);
+
   return true;
 }
 
@@ -354,90 +610,278 @@ bool AtualizarMenu_2(){
 // Terceiro  Menu
 // -------------
 
+void CarregarMenu_3() {
+  lcd.clear();
+  lerTela("tela_c_3.txt", 0);
 
-void Menu(){
+  escreverVariavel(variaveisMenu_3[0], 12, 0, true);
+  escreverVariavel(variaveisMenu_3[1], 12, 1, true);
+  escreverVariavel(variaveisMenu_3[2], 16, 2, false);
+
+  lcd.setCursor(17, 0);
+  lcd.print("%");
+
+  lcd.setCursor(17, 1);
+  lcd.print("Kg");
+}
+
+bool AtualizarMenu_3() {
+  if (cursor == 0 && pedirAlteracao()) {
+    variaveisMenu_3[0] = alterarValor(12);
+  } else if (cursor == 1 && pedirAlteracao()) {
+    variaveisMenu_3[1] = alterarValor(12);
+  }
+}
+
+
+void horaPrint(Time *tempo, uint8_t lin) {
+  lcd.setCursor(14, lin);
+  lcd.print(String(tempo->hora) + ":" + tempo->min);
+  return;
+}
+
+void CarregarMenu_4() {
+  lcd.clear();
+  lerTela("tela_d_4.txt", 0);
+  horaPrint(&horaInicialT, 0);
+  horaPrint(&horaFinalT, 1);
+}
+bool AtualizarMenu_4() {
+  /*
+  if(cursor == 0 && pedirAlteracao()){
+    alterarHora(&horaInicialT);
+  }
+  */
+}
+
+void Menu() {
 
   //Atualizar pagina da tela
+  delay(500);
+  lcd.backlight();
   CarregarMenuAtual();
   escreverPag();
 
-  
+  uint8_t contadorParado = 0;
   //Loop do Menu Principal
-  while(1){
-    int8_t antigoCursorPos = cursor;
-    cursor+=movCursorY(cursor);//Navegar entre as opções
+  while (!modoSuspenso) {
+    cursor += movCursorY(cursor);  //Navegar entre as opções
 
     //Atualizar o cursor no menu
-    if(cursor!=antigoCursorPos){
+    if (cursor != antigoCursorPos) {
 
       lcd.setCursor(19, antigoCursorPos);
       lcd.print(" ");
       lcd.setCursor(19, cursor);
       lcd.print("*");
-    }
-
-
-    //Atualizar o menu
-    
-    if(cursor==3){
-      if(MudarMenu()==true)break;//Trocar de tela true = igual continuar na mesma tela e false = trocar de tela(sair do loop e renicializar)
+      contadorParado = 0;
     }else{
-      AtualizarMenuAtual();
+      if(contadorParado++ >= 252){
+        modoSuspenso = true;
+        break;
+      }
+      contadorParado++;
+    } 
+
+    #ifdef SERIAL_MODE
+      Serial.println(contadorParado);
+    #endif
+    antigoCursorPos = cursor;
+    //Atualizar o menu
+
+    if (cursor == 3) {
+      if (MudarMenu() == true) break; // Trocar de tela true = igual continuar na mesma tela e false = trocar de tela(sair do loop e renicializar)
+    } else {
+      if (pularPag() == true) break;  // Se apertar botao por 1 segundo alterar de tela
+      else AtualizarMenuAtual();
     }
 
-    delay(500);
+    if (atualizarMenu == true) {
+      CarregarMenuAtual();
+      atualizarMenu = false;
+    } else escreverPag();
+    delay(200);
   }
 
   return;
 }
+
+
+
 
 //###################################################################################
 // Parte da lógica
 //###################################################################################
 
-bool checkTratar(){
+int PerdeuTratar() {
+  time = rtc.now();
 
-  DateTime time = rtc.now();
   uint16_t tempoTotalMinutos = (horaInicialT.hora * 60) + horaInicialT.min;
+  tempoTotalMinutos += intervaloTrata * indexTratar;
 
-  tempoTotalMinutos+=intervaloTrata*indexTratar;
-
-  if(tempoTotalMinutos>=time.minute()+(time.hour()*60))return true;
-  return false;
-}
-
-int PerdeuTratar(){
-  DateTime time = rtc.now();
-  
-  uint16_t tempoTotalMinutos = (horaInicialT.hora* 60) + horaInicialT.min;
-  tempoTotalMinutos+=intervaloTrata*indexTratar;
-  uint16_t horaMinutos =  time.minute()+( time.hour()*60);
+  uint16_t horaAtualMinutos = time.minute() + (time.hour() * 60);
 
   //Serial.println(String(tempoTotalMinutos)+"/"+String(horaMinutos));
 
   //Perdeu alguns minutos mas continua na mesma hora pode ser ainda tratado
-  if(horaMinutos <= tempoTotalMinutos+60)return 3;//Código para tratar agora
+  if (horaAtualMinutos <= tempoTotalMinutos + 60) return 3;  //Código para tratar agora
 
-  /*
-  if(tratarHora.hora > time.hour()){
-    uint8_t nextHora= indexTratar;
-
-
-    while(1){
-      nextHora++;
-
-      //if(nextHora.hora < time.hour() || )
-      return 0;
-    }
-  }
-  */
   return 1;
 }
 
-void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda){
+//Calcular a diferença em minutos entre as tratadas
+void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda) {
 
   int tempoTotalMinutos = (horaFinalT.hora - horaInicialT.hora) * 60 + (horaFinalT.min - horaInicialT.min);
   // Calcula a duração de cada tratamento em minutos
   intervaloTrata = tempoTotalMinutos / qtdaTratar;
   return;
+}
+
+// Salvar valores das váriaveis na mémoria para o SD
+void SalvarDados() {
+  sistemaFile = SD.open(arquivoDoSistema, FILE_WRITE);
+
+  if (sistemaFile) {
+    SD.remove(arquivoDoSistema);
+    sistemaFile = SD.open(arquivoDoSistema, FILE_WRITE);
+  }
+
+  sistemaFile.println(String(variaveisMenu_1[0]) + "," + variaveisMenu_1[1] + "," + variaveisMenu_1[2]);
+  sistemaFile.println(String(dataLote.dia) + ":" + String(dataLote.mes) + ":" + String(dataLote.ano) + "," + variaveisMenu_2[0] + "," + variaveisMenu_2[1]);
+  sistemaFile.println(String(variaveisMenu_3[0]) + "," + variaveisMenu_3[1] + "," + variaveisMenu_3[2]);
+  sistemaFile.close();
+}
+
+// Carregar valores das váriaveis do SD para a mémoria
+void CarregarDados() {
+  sistemaFile = SD.open(arquivoDoSistema, FILE_READ);
+
+  if (sistemaFile) {
+    char *buffer[3];  //Buffer dos dados
+    char *ptr;
+    String p;
+    uint8_t tela_index = 1;
+
+    // Enquanto há contéudo não-lido no arquivo
+    while (sistemaFile.available()) {
+
+      p = sistemaFile.readStringUntil('\n');
+
+      ptr = strtok(p.c_str(), ",");  //Pegar primeiro valor
+
+      // Cada linha pode fornecer apenas 3 valores sendo assim igual no menu (primeira linha = menu_1, segunda linha = menu_2 etc..)
+      for (uint8_t index = 0; index < 3; index++) {
+        buffer[index] = ptr;
+        ptr = strtok(NULL, ",");
+      }
+
+      switch (tela_index) {
+        case 1:
+          for (uint8_t i = 0; i < 3; i++) {
+            //Serial.println(buffer[i]);
+            variaveisMenu_1[i] = atoi(buffer[i]);
+          }
+          break;
+        case 2:
+          for (uint8_t i = 1; i < 3; i++) {
+            //Serial.println(buffer[i]);
+            variaveisMenu_2[i - 1] = atoi(buffer[i]);
+          }
+
+
+          //Carregar dados da data (utilizando o propio buffer da aplicação)
+          ptr = strtok(buffer[0], ":");  //Pegar primeiro valor
+          for (uint8_t index = 0; index < 3; index++) {
+            buffer[index] = ptr;
+            ptr = strtok(NULL, ":");
+          }
+          dataLote.dia = atoi(buffer[0]);
+          dataLote.mes = atoi(buffer[1]);
+          dataLote.ano = atoi(buffer[2]);
+
+          break;
+        case 3:
+          for (uint8_t i = 0; i < 3; i++) {
+            variaveisMenu_3[i] = atoi(buffer[i]);
+          }
+          break;
+      }
+      tela_index++;
+    }
+  }
+  sistemaFile.close();
+  return;
+}
+
+void buzinar() {
+  if (digitalRead(vamosTratar) == HIGH) {  // só irá tratar manualmente se apertar o botão 3
+                                           // para tratar basta setar o pino 3 (vamosTratar) = HIGH
+    digitalWrite(vamosTratar,(LOW));
+    lcd.noBacklight();
+    int tempo = 200;
+    for (uint8_t chamarPeixe = 0; chamarPeixe < 3; chamarPeixe++) {
+      tom(buzzer, 600, tempo);  //LA
+      delay(tempo);
+      tom(buzzer, 500, tempo);  //RE
+      delay(tempo);
+      tom(buzzer, 400, tempo);  //RE
+      delay(tempo);
+      tom(buzzer, 300, tempo);  //RE
+      delay(tempo);
+      tom(buzzer, 200, tempo);  //RE
+      delay(tempo);
+      tom(buzzer, 100, tempo);  //RE
+    }
+    digitalWrite(rele1, LOW);
+    delay(tempo * 8);
+    digitalWrite(rele2, LOW);
+    delay(tempo * 5);
+    digitalWrite(rele1, HIGH);
+    digitalWrite(rele2, HIGH);
+  }
+  Menu();
+}
+
+void tom(char pino, int frequencia, int duracao) {
+  float periodo = 1000.0 / frequencia;             //Periodo em ms
+  for (int i = 0; i < duracao / (periodo); i++) {  //Executa a rotina de dentro o tanta de vezes que a frequencia desejada cabe dentro da duracao
+    digitalWrite(pino, HIGH);
+    delayMicroseconds(periodo * 500);  //Metade do periodo em ms
+    digitalWrite(pino, LOW);
+    delayMicroseconds(periodo * 500);
+  }
+}
+
+//Lógica dos solstícios para encontrar o primeiro e ultimo horário de tratar
+// Nascer do sol 01 de janeiro seta = 05:25 soma 00:33 segundos a cada dia 182 vezes (01/julho)
+// Por do sol em 01 de Janeiro seta = 19:11 reduz 00:33 segundos a cada dia 182 vezes (01/julho)
+//
+// Nascer do sol 02 de julho seta = 07:04 reduz 00:33 segundos a cada dia 183 vezes (31/Dezembro)
+// Por do sol em 02 de julho seta = 17:34 soma 00:33 segundos a cada dia 183 vezes (31/Dezembro)
+
+int diasDoMes(int month, int year) {
+  if (month == 2) { // Fevereiro
+    return 28; // Ano não bissexto
+  } else if (month == 4 || month == 6 || month == 9 || month == 11) {
+    return 30; // Abril, Junho, Setembro, Novembro
+  } else {
+    return 31; // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
+  }
+}
+
+// Válidar se está na temperatura parar tratar
+bool tempTratar(){return (int)rtc.getTemperature() > TEMPERATURA_TRATAR;}
+
+// Válidar se está no horário parar tratar
+bool horaTratar(){
+  //time = rtc.now(); inicio do loop já faz atualização
+
+  uint16_t horaAtual = (time.hour()*60);
+  horaAtual +=time.minute();
+
+  indexTratar=6;
+  uint32_t horaTratamento = (horaInicialT.hora*60)+(horaInicialT.min)+indexTratar*intervaloTrata;
+
+  return horaAtual == horaTratamento;
 }

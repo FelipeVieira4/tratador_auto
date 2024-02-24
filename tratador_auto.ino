@@ -368,9 +368,9 @@ void atualizarHorarios(Time *horario,int32_t segundos,bool soma){
     horario->hora += horario->min / 60;
     horario->min %= 60;
   }else{
-    int32_t horas = segundos / 3600; // calcular o número de horas
+    int8_t horas = segundos / 3600; // calcular o número de horas
     segundos %= 3600; // atualizar segundos para o restante após a subtração das horas
-    int32_t minutos = segundos / 60; // calcular o número de minutos restantes
+    int8_t minutos = segundos / 60; // calcular o número de minutos restantes
     segundos %= 60; // calcular os segundos restantes
 
     // Subtrair as horas, minutos e segundos calculados dos valores atuais

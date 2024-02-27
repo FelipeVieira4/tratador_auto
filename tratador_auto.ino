@@ -15,6 +15,7 @@
 //Variáveis de PRE-configuração
 #define TEMPO_MOTOR_LIG 20    // Tempo do Motor ligado por grama de ração
 #define TEMPERATURA_TRATAR 15 // Em Grau Celsius
+#define VALOR_RACAO_PEIXE_DIA 0.01
 
 // Pinos do Display LCD(16x4 I2C)
 #define Display_col 20  // Serve para definir o numero de colunas do display utilizado
@@ -108,7 +109,7 @@ typedef struct {
 
 //Menu 1
 unsigned int variaveisMenu_1[3] = { 0, 0, 0 };  //Puxar varíaveis da opção no menu e colocar numa array
-Menu_1 menu_1 = { &variaveisMenu_1[0], &variaveisMenu_1[1], &variaveisMenu_1[2] };
+Menu_1 menu_1 = { &variaveisMenu_1[0],&variaveisMenu_1[1], &variaveisMenu_1[2] };
 
 //Menu 2
 Data_Lote dataLote;
@@ -117,7 +118,11 @@ Menu_2 menu_2 = { &dataLote, &variaveisMenu_2[0], &variaveisMenu_2[1] };
 
 //Menu 3
 unsigned int variaveisMenu_3[3] = { 0, 0, 0 };  //Puxar varíaveis da opção no menu e colocar numa array
-Menu_3 menu_3 = { &variaveisMenu_3[0], variaveisMenu_3[1], variaveisMenu_3[2] };
+Menu_3 menu_3 = { &variaveisMenu_3[0], &variaveisMenu_3[1], &variaveisMenu_3[2] };
+
+//Menu 4
+unsigned int variaveisMenu_4[3] = { 0, 0, 0 };  //Puxar varíaveis da opção no menu e colocar numa array
+Menu_3 menu_4 = { &variaveisMenu_4[0], &variaveisMenu_4[1], &variaveisMenu_4[2] };
 
 Time horaInicialT, horaFinalT;
 
@@ -185,6 +190,8 @@ bool tempTratar();
 int PerdeuTratar();                                                      // Se passou o horário e não tratou
 void ManejarHorarioTratamento(Time *inicio, Time *final, uint8_t qtda);  // Orgainzar/Reoganizar os horários do tratamento
 
+void calcularSistema();
+void recalcularSistema();
 
 void (*resetFunc)(void) = 0;  //Resetar o arduino
 
@@ -249,6 +256,9 @@ void setup() {  // Executado uma vez quando ligado o Arduino
 
   setaHorarios();
   ManejarHorarioTratamento(&horaInicialT, &horaFinalT, qtdaTratar);
+  Serial.println("teste");
+  calcularSistema();
+  //recalcularSistema();
 }
 
 
@@ -368,6 +378,7 @@ void atualizarHorarios(Time *horario,int32_t segundos,bool soma){
     horario->hora += horario->min / 60;
     horario->min %= 60;
   }else{
+    //Subtrair
     int8_t horas = segundos / 3600; // calcular o número de horas
     segundos %= 3600; // atualizar segundos para o restante após a subtração das horas
     int8_t minutos = segundos / 60; // calcular o número de minutos restantes
@@ -480,8 +491,12 @@ unsigned int alterarValor(uint8_t pos) {
 
   char valorTexto[7] = "000000";  // 6 "0" e um "\0"
   uint8_t posCursor = 0;
+  bool valorValido = true;
+
   delay(1000);
-  while (digitalRead(botao) == HIGH) {
+
+
+  while (digitalRead(botao) == HIGH || valorValido == false) {
     int8_t inputX = movValorX();
     int8_t inputY = movValorY();
 
@@ -501,8 +516,21 @@ unsigned int alterarValor(uint8_t pos) {
     lcd.setCursor(pos, cursor);
     lcd.print(valorTexto);
     delay(175);
+
+
+    char validacao[3]={valorTexto[0],valorTexto[1],valorTexto[2]};
+    valorValido = (unsigned int)atoi(validacao) <= 64;
+
+    lcd.setCursor(0, 3);
+    if(valorValido == false){
+      lcd.print("Valor Invalido");
+    }else{
+      lcd.print("Valor Valido");
+    }
   }
   atualizarMenu = true;
+
+  
 
   return (unsigned int)atoi(valorTexto);
 }
@@ -562,7 +590,10 @@ void CarregarMenu_1() {
 
 // Atualizar(lógica) do primeiro menu
 bool AtualizarMenu_1() {
-
+  if(pedirAlteracao() && cursor == 0 && (*menu_1.saldo + 20000 < 30000)){
+    *menu_1.saldo += 20000;
+    atualizarMenu = true;
+  }
   return true;
 }
 
@@ -598,10 +629,8 @@ bool AtualizarMenu_2() {
 
   else if (cursor == 1 && pedirAlteracao()) {
     variaveisMenu_2[0] = alterarValor(12);
+    atualizarMenu = true;
   }
-
-  //CarregarMenu_2();
-  //*racao.porTrata=int(*racao.diaria/qtdaTratar);
 
   return true;
 }
@@ -628,9 +657,12 @@ void CarregarMenu_3() {
 bool AtualizarMenu_3() {
   if (cursor == 0 && pedirAlteracao()) {
     variaveisMenu_3[0] = alterarValor(12);
+
   } else if (cursor == 1 && pedirAlteracao()) {
     variaveisMenu_3[1] = alterarValor(12);
   }
+
+  return true;
 }
 
 
@@ -647,11 +679,7 @@ void CarregarMenu_4() {
   horaPrint(&horaFinalT, 1);
 }
 bool AtualizarMenu_4() {
-  /*
-  if(cursor == 0 && pedirAlteracao()){
-    alterarHora(&horaInicialT);
-  }
-  */
+  return true;
 }
 
 void Menu() {
@@ -884,4 +912,38 @@ bool horaTratar(){
   uint32_t horaTratamento = (horaInicialT.hora*60)+(horaInicialT.min)+indexTratar*intervaloTrata;
 
   return horaAtual == horaTratamento;
+}
+
+void calcularSistema(){
+  //*menu_1.saldo = 2000;
+  //*menu_3.taxCrescimentoDia = 233;
+
+  Serial.println(*menu_3.taxCrescimentoDia);
+  if(*menu_3.taxCrescimentoDia == 0) return;
+  
+
+
+  float taxaCrescimento = *menu_3.taxCrescimentoDia / 100;
+  //Serial.println(*menu_1.saldo);
+
+  *menu_3.racaoPeixeDia =(unsigned int) (*menu_3.pesTeorico * taxaCrescimento) * VALOR_RACAO_PEIXE_DIA;
+  
+  //Serial.println(*menu_3.racaoPeixeDia);
+
+  *menu_1.consumoDiario =(unsigned int) *menu_3.racaoPeixeDia * *menu_2.qtdePeixes;
+  *menu_1.diasEstoque =(unsigned int) *menu_1.saldo / *menu_1.consumoDiario;
+
+  //Serial.println(*menu_1.saldo);
+  //Serial.println(*menu_1.consumoDiario);
+
+  return;
+}
+
+void recalcularSistema(){
+  *menu_1.saldo -= *menu_1.consumoDiario;
+  *menu_3.pesTeorico = 233;
+  
+  //Serial.println(*menu_3.pesTeorico);
+  *menu_3.pesTeorico += *menu_3.pesTeorico/10;
+ // Serial.println(*menu_3.pesTeorico);
 }
